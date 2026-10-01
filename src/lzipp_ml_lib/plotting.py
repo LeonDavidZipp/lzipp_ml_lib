@@ -3,9 +3,10 @@ import math
 import matplotlib.pyplot as plt
 import polars as pl
 import seaborn as sns
+from matplotlib.figure import Figure, SubFigure
 
 
-def plot_corr_heatmap(data: pl.DataFrame | pl.LazyFrame) -> plt.Figure | plt.SubFigure:  # type: ignore
+def plot_corr_heatmap(data: pl.DataFrame | pl.LazyFrame) -> Figure | SubFigure:
     hm = data.collect().corr() if isinstance(data, pl.LazyFrame) else data.corr()
     cols = hm.columns
 
@@ -26,7 +27,7 @@ def plot_corr_heatmap(data: pl.DataFrame | pl.LazyFrame) -> plt.Figure | plt.Sub
     return ax.figure
 
 
-def plot_kde(data: pl.DataFrame | pl.LazyFrame) -> plt.Figure:  # type: ignore
+def plot_kde(data: pl.DataFrame | pl.LazyFrame) -> Figure:
     df = data.collect() if isinstance(data, pl.LazyFrame) else data
     n_cols = 2
     n_rows = math.ceil(len(df.columns) / n_cols)
