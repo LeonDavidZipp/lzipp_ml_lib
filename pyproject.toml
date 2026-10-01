@@ -1,7 +1,6 @@
 [project]
 authors = [{name = "lzipp", email = "leondavidzipp@proton.me"}]
-dependencies = ["matplotlib>=3.11.2,<4", "seaborn>=0.13.2,<0.14", "pyarrow>=25.0.1,<26"]
-name = "ml-training"
+name = "lzipp-ml-lib"
 requires-python = ">= 3.11"
 version = "0.1.0"
 
@@ -14,7 +13,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
 [tool.pixi.pypi-dependencies]
-ml_training = { path = ".", editable = true }
+lzipp_ml_lib = { path = ".", editable = true }
 
 [tool.pixi.tasks]
 fmt = "pixi exec ruff format && pixi exec ruff check --fix"
@@ -34,13 +33,16 @@ fastexcel = ">=0.21.0,<0.22"
 xgboost = ">=3.4.2,<4"
 mypy = ">=2.3.1,<3"
 graphviz = ">=14.1.2,<15"
+pyarrow = ">=25.0.0,<26"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = "*"
 ipykernel = "*"
+matplotlib = "*"
+seaborn = "*"
 
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
 
 [dependency-groups]
-dev = ["graphviz>=0.21,<0.22"]
+dev = ["graphviz>=0.21,<0.22", "matplotlib-stubs>=0.3.11,<0.4"]
