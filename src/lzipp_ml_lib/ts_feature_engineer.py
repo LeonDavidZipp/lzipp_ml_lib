@@ -1,6 +1,10 @@
-from collections.abc import Sequence
+import re
+from collections.abc import Callable, Sequence
+from datetime import date, datetime
+from typing import Literal, Self
 
 import dataframely as dy
+import holidays
 import numpy as np
 import polars as pl
 
@@ -14,21 +18,158 @@ class TSSchema(dy.Schema):
         return pl.col("ts").is_sorted(descending=False)
 
 
+CalendarFeature = Literal[
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "day_of_year",
+    "weekday",
+    "hour",
+    "minute",
+    "is_weekend",
+    "is_month_start",
+    "is_month_end",
+    "days_in_month",
+]
+CyclicalFeature = Literal[
+    "month", "weekday", "hour", "hour_of_week", "day_of_year", "day_of_month"
+]
+ProfileKey = Literal["hour", "weekday", "month", "hour_of_week", "day_of_year"]
+RollingStat = Literal["mean", "std", "min", "max", "median"]
+TrendUnit = Literal["s", "m", "h", "d"]
+
+_ts = pl.col("ts")
+_hour_of_week = (_ts.dt.weekday() - 1) * 24 + _ts.dt.hour()
+
+_CALENDAR: dict[str, pl.Expr] = {
+    "quarter": _ts.dt.quarter(),
+    "month": _ts.dt.month(),
+    "week": _ts.dt.week(),
+    "day": _ts.dt.day(),
+    "day_of_year": _ts.dt.ordinal_day(),
+    "weekday": _ts.dt.weekday(),
+    "hour": _ts.dt.hour(),
+    "minute": _ts.dt.minute(),
+    "is_weekend": _ts.dt.weekday() >= 6,
+    "is_month_start": _ts.dt.day() == 1,
+    "is_month_end": _ts.dt.day() == _ts.dt.days_in_month(),
+    "days_in_month": _ts.dt.days_in_month(),
+}
+
+# name -> (position in the cycle, cycle length)
+_CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
+    "month": (_ts.dt.month(), 12),
+    "weekday": (_ts.dt.weekday(), 7),
+    "hour": (_ts.dt.hour(), 24),
+    "hour_of_week": (_hour_of_week, 168),
+    "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
+    "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
+}
+
+_PROFILE_KEYS: dict[str, pl.Expr] = {
+    "hour": _ts.dt.hour(),
+    "weekday": _ts.dt.weekday(),
+    "month": _ts.dt.month(),
+    "hour_of_week": _hour_of_week,
+    "day_of_year": _ts.dt.ordinal_day(),
+}
+
+_ROLLING: dict[str, Callable[[str], pl.Expr]] = {
+    "mean": lambda w: pl.col("val").rolling_mean_by("ts", w),
+    "std": lambda w: pl.col("val").rolling_std_by("ts", w),
+    "min": lambda w: pl.col("val").rolling_min_by("ts", w),
+    "max": lambda w: pl.col("val").rolling_max_by("ts", w),
+    "median": lambda w: pl.col("val").rolling_median_by("ts", w),
+}
+
+# Approximate unit lengths, only used to compare durations against the horizon.
+_UNIT_SECONDS = {
+    "y": 365.25 * 86400,
+    "q": 91.31 * 86400,
+    "mo": 30.44 * 86400,
+    "w": 7 * 86400,
+    "d": 86400,
+    "h": 3600,
+    "m": 60,
+    "s": 1,
+}
+_DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
+
+
+def _approx_seconds(duration: str) -> float:
+    parts = _DURATION.findall(duration)
+    if not parts or "".join(n + u for n, u in parts) != duration:
+        raise ValueError(
+            f"invalid duration '{duration}', expected e.g. '1d', '6h' or '1d12h' "
+            f"using units {list(_UNIT_SECONDS)}"
+        )
+    return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
+
+
 class TSFeatureEngineer:
     """Feature builders for a `ts` / `val` time series.
 
     Each method adds columns and keeps `ts` unless `drop_ts=True`, so they compose
     with `pipe`:
 
+        fe = TSFeatureEngineer(horizon="1d").fit(train)
         features = (
-            lf.pipe(fe.lag, daily=(1, 7))
+            train.pipe(fe.lag, daily=(1, 7))
+            .pipe(fe.rolling, windows=("7d",))
             .pipe(fe.cyclical)
-            .pipe(fe.calendar, drop_ts=True)
+            .pipe(fe.calendar)
+            .pipe(fe.holiday, country="DE")
+            .pipe(fe.trend, drop_ts=True)
             .drop_nulls()
         )
+
+    Features built from past values (`lag`, `rolling`, `ewm`, `gap`, and
+    `exogenous` with `known_in_advance=False`) only use data available
+    `horizon` before each row, so they can be computed at prediction time.
+    `trend` and `profile` use values learned by `fit`, so train and test get
+    consistent features.
     """
 
-    def __init__(self): ...
+    def __init__(self, horizon: str | None = None):
+        """
+        Args:
+            horizon (str | None): How far ahead you forecast, as a polars duration
+                string, e.g. `"1d"` or `"6h"`. Past-value features only use data
+                at least this old. Defaults to None (one step ahead: everything
+                before the row's own timestamp is available).
+
+        Raises:
+            ValueError: If `horizon` is not a valid duration.
+        """
+        if horizon is not None:
+            _approx_seconds(horizon)
+        self.horizon = horizon
+        self._min_year: int | None = None
+        self._origin: datetime | None = None
+        self._profiles: dict[str, pl.DataFrame] = {}
+
+    def fit(self, lf: dy.LazyFrame[TSSchema]) -> Self:
+        """Learn the training-set values used by `trend` and `profile`.
+
+        Collects `lf`.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Training data.
+
+        Returns:
+            Self: The fitted feature engineer, for chaining.
+        """
+        df = lf.select("ts", "val").collect()
+        self._min_year = df.select(_ts.dt.year().min()).item()
+        self._origin = df.select(_ts.min()).item()
+        self._profiles = {
+            key: df.group_by(expr.alias("_key")).agg(
+                pl.col("val").mean().alias(f"profile_{key}")
+            )
+            for key, expr in _PROFILE_KEYS.items()
+        }
+        return self
 
     def lag(
         self,
@@ -49,8 +190,8 @@ class TSFeatureEngineer:
         units back get a null.
 
         Args:
-            lf (pl.LazyFrame): Frame with a unique `ts` datetime column and a `val`
-                column, e.g. a `dy.LazyFrame[TSSchema]`.
+            lf (dy.LazyFrame[TSSchema]): Frame with a unique `ts` datetime column and
+                a `val` column.
             yearly (Sequence[int] | None): Yearly lags, named `lag_{n}y`, e.g. `(1,)`
                 adds `lag_1y`. Defaults to None.
             monthly (Sequence[int] | None): Monthly lags, named `lag_{n}mo`.
@@ -72,7 +213,7 @@ class TSFeatureEngineer:
                 `ts` if `drop_ts`).
 
         Raises:
-            ValueError: If any lag is smaller than 1.
+            ValueError: If any lag is smaller than 1, or shorter than the horizon.
         """
         lags = {
             "y": yearly,
@@ -88,6 +229,19 @@ class TSFeatureEngineer:
                 raise ValueError(
                     f"lags must be positive integers, got {ns} for unit '{unit}'"
                 )
+        if self.horizon is not None:
+            horizon = _approx_seconds(self.horizon)
+            too_short = [
+                f"{n}{unit}"
+                for unit, ns in lags.items()
+                for n in ns or ()
+                if n * _UNIT_SECONDS[unit] < horizon
+            ]
+            if too_short:
+                raise ValueError(
+                    f"lags {too_short} are shorter than the horizon '{self.horizon}' "
+                    "and won't be known at prediction time"
+                )
 
         out = lf
         for unit, ns in lags.items():
@@ -97,56 +251,391 @@ class TSFeatureEngineer:
                 )
                 out = (
                     out.with_columns(_lag_ts=pl.col("ts").dt.offset_by(f"-{n}{unit}"))
-                    .join(past, on="_lag_ts", how="left")
+                    .join(past, on="_lag_ts", how="left", maintain_order="left")
                     .drop("_lag_ts")
                 )
-        return out.drop("ts") if drop_ts else out
+        return _maybe_drop_ts(out, drop_ts)
 
-    def cyclical(
-        self, lf: dy.LazyFrame[TSSchema], drop_ts: bool = False
+    def lag_diff(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        pairs: Sequence[tuple[str, str]],
+        ratio: bool = False,
+        drop_ts: bool = False,
     ) -> pl.LazyFrame:
-        """Add sine/cosine encodings of month, weekday and hour.
+        """Add differences (and optionally ratios) between existing lag columns.
 
         Args:
-            lf (pl.LazyFrame): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TSSchema]): Frame that already has the lag columns, e.g.
+                the output of `lag`.
+            pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
+                `[("lag_1d", "lag_7d")]` adds `lag_1d_minus_lag_7d`.
+            ratio (bool): Also add `{a}_over_{b}`, null where `b` is 0. Defaults to
+                False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
 
         Returns:
-            pl.LazyFrame: `lf` with `month_sin`, `month_cos`, `weekday_sin`,
-                `weekday_cos`, `hour_sin` and `hour_cos` appended (without `ts` if
+            pl.LazyFrame: `lf` with the difference (and ratio) columns appended
+                (without `ts` if `drop_ts`).
+        """
+        features: list[pl.Expr] = []
+        for a, b in pairs:
+            features.append((pl.col(a) - pl.col(b)).alias(f"{a}_minus_{b}"))
+            if ratio:
+                features.append(
+                    pl.when(pl.col(b) != 0)
+                    .then(pl.col(a) / pl.col(b))
+                    .alias(f"{a}_over_{b}")
+                )
+        return _maybe_drop_ts(lf.with_columns(features), drop_ts)
+
+    def rolling(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        windows: Sequence[str],
+        stats: Sequence[RollingStat] = ("mean", "std"),
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add rolling statistics of past `val`s.
+
+        Each row gets the statistic over the `window` ending at the latest
+        observation available at prediction time (see `horizon`), never
+        including the row's own value.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with `ts` and `val` columns.
+            windows (Sequence[str]): Window lengths as polars durations, e.g.
+                `("24h", "7d")`.
+            stats (Sequence[RollingStat]): Statistics to compute. Defaults to
+                `("mean", "std")`.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `roll_{stat}_{window}` columns appended
+                (without `ts` if `drop_ts`).
+        """
+        values = lf.select(
+            "ts",
+            *(
+                _ROLLING[stat](w).alias(f"roll_{stat}_{w}")
+                for w in windows
+                for stat in stats
+            ),
+        )
+        return _maybe_drop_ts(self._latest_available(lf, values), drop_ts)
+
+    def ewm(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        half_lives: Sequence[str],
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add exponentially weighted means of past `val`s.
+
+        Like `rolling`, each row only sees observations available at prediction
+        time.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with `ts` and `val` columns.
+            half_lives (Sequence[str]): Half-lives as polars durations, e.g.
+                `("1d", "7d")`.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `ewm_{half_life}` columns appended (without `ts`
+                if `drop_ts`).
+        """
+        values = lf.select(
+            "ts",
+            *(
+                pl.col("val").ewm_mean_by("ts", half_life=hl).alias(f"ewm_{hl}")
+                for hl in half_lives
+            ),
+        )
+        return _maybe_drop_ts(self._latest_available(lf, values), drop_ts)
+
+    def gap(self, lf: dy.LazyFrame[TSSchema], drop_ts: bool = False) -> pl.LazyFrame:
+        """Add the time since the latest observation available at prediction time.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` column.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `secs_since_last_obs` appended (without `ts` if
                 `drop_ts`).
         """
-        cyclical = {
-            "month": (pl.col("ts").dt.month(), 12),
-            "weekday": (pl.col("ts").dt.weekday(), 7),
-            "hour": (pl.col("ts").dt.hour(), 24),
-        }
-        features: list[pl.Expr] = []
-        for name, (expr, period) in cyclical.items():
-            angle = expr * (2 * np.pi / period)
-            features.append(angle.sin().alias(f"{name}_sin"))
-            features.append(angle.cos().alias(f"{name}_cos"))
-        out = lf.with_columns(features)
-        return out.drop("ts") if drop_ts else out
+        values = lf.select("ts", _last_obs_ts=pl.col("ts"))
+        out = (
+            self._latest_available(lf, values)
+            .with_columns(
+                secs_since_last_obs=(_ts - pl.col("_last_obs_ts")).dt.total_seconds()
+            )
+            .drop("_last_obs_ts")
+        )
+        return _maybe_drop_ts(out, drop_ts)
+
+    def cyclical(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        features: Sequence[CyclicalFeature] = ("month", "weekday", "hour"),
+        harmonics: int = 1,
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add sine/cosine (Fourier) encodings of cyclical calendar features.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            features (Sequence[CyclicalFeature]): Cycles to encode. Defaults to
+                `("month", "weekday", "hour")`.
+            harmonics (int): Number of sine/cosine pairs per cycle. Harmonic `k`
+                repeats `k` times per cycle and lets the model fit sharper
+                seasonal shapes. Defaults to 1.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `{feature}_sin` / `{feature}_cos` appended, plus
+                `{feature}_sin{k}` / `{feature}_cos{k}` for harmonics `k > 1`
+                (without `ts` if `drop_ts`).
+
+        Raises:
+            ValueError: If `harmonics` is smaller than 1.
+        """
+        if harmonics < 1:
+            raise ValueError(f"harmonics must be at least 1, got {harmonics}")
+        exprs: list[pl.Expr] = []
+        for name in features:
+            expr, period = _CYCLICAL[name]
+            for k in range(1, harmonics + 1):
+                angle = expr * (2 * np.pi * k / period)
+                suffix = "" if k == 1 else str(k)
+                exprs.append(angle.sin().alias(f"{name}_sin{suffix}"))
+                exprs.append(angle.cos().alias(f"{name}_cos{suffix}"))
+        return _maybe_drop_ts(lf.with_columns(exprs), drop_ts)
 
     def calendar(
-        self, lf: dy.LazyFrame[TSSchema], drop_ts: bool = False
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        features: Sequence[CalendarFeature] = ("quarter", "month", "day", "hour"),
+        drop_ts: bool = False,
     ) -> pl.LazyFrame:
         """Add raw calendar features.
 
         Args:
-            lf (pl.LazyFrame): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            features (Sequence[CalendarFeature]): Features to add, each named as in
+                the literal. Defaults to `("quarter", "month", "day", "hour")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
 
         Returns:
-            pl.LazyFrame: `lf` with `diff_from_min_year`, `quarter`, `month`, `day`
-                and `hour` appended (without `ts` if `drop_ts`).
+            pl.LazyFrame: `lf` with the requested calendar columns appended (without
+                `ts` if `drop_ts`).
         """
-        out = lf.with_columns(
-            diff_from_min_year=pl.col("ts").dt.year() - pl.col("ts").dt.year().min(),
-            quarter=pl.col("ts").dt.quarter(),
-            month=pl.col("ts").dt.month(),
-            day=pl.col("ts").dt.day(),
-            hour=pl.col("ts").dt.hour(),
+        out = lf.with_columns(_CALENDAR[name].alias(name) for name in features)
+        return _maybe_drop_ts(out, drop_ts)
+
+    def holiday(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        country: str,
+        subdiv: str | None = None,
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add public holiday features from the `holidays` package.
+
+        Collects the min and max year of `ts` to build the holiday calendar.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            country (str): ISO country code, e.g. `"DE"`.
+            subdiv (str | None): Subdivision code, e.g. `"BY"` for Bavaria.
+                Defaults to None (national holidays only).
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `is_holiday`, `days_to_holiday`,
+                `days_since_holiday` and `is_bridge_day` (a workday between two days
+                off) appended (without `ts` if `drop_ts`).
+        """
+        lo, hi = (
+            lf.select(_ts.dt.year().min(), _ts.dt.year().max().alias("hi"))
+            .collect()
+            .row(0)
         )
-        return out.drop("ts") if drop_ts else out
+        # Pad a year on each side so days_to/since_holiday aren't null at the edges.
+        calendar = holidays.country_holidays(
+            country, subdiv=subdiv, years=range(lo - 1, hi + 2)
+        )
+        holiday_dates = pl.DataFrame(
+            {"_hol": sorted(calendar.keys())}, schema={"_hol": pl.Date}
+        )
+        day_off = pl.col("is_holiday") | (pl.col("_date").dt.weekday() >= 6)
+        days = (
+            pl.DataFrame(
+                {
+                    "_date": pl.date_range(
+                        date(lo - 1, 1, 1), date(hi + 1, 12, 31), eager=True
+                    )
+                }
+            )
+            .with_columns(is_holiday=pl.col("_date").is_in(holiday_dates["_hol"]))
+            .join_asof(
+                holiday_dates, left_on="_date", right_on="_hol", strategy="forward"
+            )
+            .with_columns(
+                days_to_holiday=(pl.col("_hol") - pl.col("_date")).dt.total_days()
+            )
+            .drop("_hol")
+            .join_asof(
+                holiday_dates, left_on="_date", right_on="_hol", strategy="backward"
+            )
+            .with_columns(
+                days_since_holiday=(pl.col("_date") - pl.col("_hol")).dt.total_days()
+            )
+            .drop("_hol")
+            .with_columns(is_bridge_day=~day_off & day_off.shift(1) & day_off.shift(-1))
+        )
+        out = (
+            lf.with_columns(_date=_ts.dt.date())
+            .join(days.lazy(), on="_date", how="left", maintain_order="left")
+            .drop("_date")
+        )
+        return _maybe_drop_ts(out, drop_ts)
+
+    def trend(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        unit: TrendUnit = "h",
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add trend features relative to the training data seen by `fit`.
+
+        Tree models like XGBoost can't extrapolate a trend beyond the training
+        range; consider detrending the target instead.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            unit (TrendUnit): Unit of the time index. Defaults to `"h"`.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `diff_from_min_year` (years since the first
+                training year) and `t_{unit}` (time since the first training
+                timestamp) appended (without `ts` if `drop_ts`).
+
+        Raises:
+            RuntimeError: If `fit` hasn't been called.
+        """
+        if self._min_year is None or self._origin is None:
+            raise RuntimeError("call fit() before trend()")
+        out = lf.with_columns(
+            diff_from_min_year=_ts.dt.year() - self._min_year,
+            **{
+                f"t_{unit}": (_ts - pl.lit(self._origin)).dt.total_seconds()
+                / _UNIT_SECONDS[unit]
+            },
+        )
+        return _maybe_drop_ts(out, drop_ts)
+
+    def profile(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        keys: Sequence[ProfileKey] = ("hour_of_week",),
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add the training-set mean of `val` per seasonal period (target encoding).
+
+        The means come from `fit`. On the training data itself each row's own
+        value is part of its mean, a mild leak; it's usually negligible with
+        many periods' worth of data.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            keys (Sequence[ProfileKey]): Periods to average over, e.g. `"hour_of_week"`
+                gives the mean for each weekday/hour combination. Defaults to
+                `("hour_of_week",)`.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `profile_{key}` columns appended (without `ts` if
+                `drop_ts`). Periods not seen in training get a null.
+
+        Raises:
+            RuntimeError: If `fit` hasn't been called.
+        """
+        if not self._profiles:
+            raise RuntimeError("call fit() before profile()")
+        out = lf
+        for key in keys:
+            out = (
+                out.with_columns(_key=_PROFILE_KEYS[key])
+                .join(
+                    self._profiles[key].lazy(),
+                    on="_key",
+                    how="left",
+                    maintain_order="left",
+                )
+                .drop("_key")
+            )
+        return _maybe_drop_ts(out, drop_ts)
+
+    def exogenous(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        exog: pl.LazyFrame,
+        known_in_advance: bool = True,
+        tolerance: str | None = None,
+        drop_ts: bool = False,
+    ) -> pl.LazyFrame:
+        """Add external series, e.g. weather or prices, matched by timestamp.
+
+        Each row gets the latest `exog` row at or before its timestamp.
+
+        Args:
+            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            exog (pl.LazyFrame): Frame with a `ts` column (sorted, same dtype as in
+                `lf`) and the feature columns.
+            known_in_advance (bool): Whether the values are known at prediction
+                time, e.g. a weather forecast. If False (e.g. measured weather),
+                only values available `horizon` before each row are used.
+                Defaults to True.
+            tolerance (str | None): Max distance to the matched `exog` row as a
+                polars duration, e.g. `"1h"`; farther matches become null.
+                Defaults to None (no limit).
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with the `exog` columns appended (without `ts` if
+                `drop_ts`).
+        """
+        if known_in_advance:
+            out = lf.join_asof(exog, on="ts", strategy="backward", tolerance=tolerance)
+        else:
+            out = self._latest_available(lf, exog, tolerance)
+        return _maybe_drop_ts(out, drop_ts)
+
+    def _latest_available(
+        self,
+        lf: pl.LazyFrame,
+        values: pl.LazyFrame,
+        tolerance: str | None = None,
+    ) -> pl.LazyFrame:
+        """Join `values` (`ts` + feature columns, computed including each row's own
+        observation) so every row gets the latest values known at prediction time:
+        at or before `ts - horizon`, or strictly before `ts` without a horizon."""
+        cutoff = _ts if self.horizon is None else _ts.dt.offset_by(f"-{self.horizon}")
+        return (
+            lf.with_columns(_cutoff=cutoff)
+            .join_asof(
+                values.rename({"ts": "_cutoff"}),
+                on="_cutoff",
+                strategy="backward",
+                allow_exact_matches=self.horizon is not None,
+                tolerance=tolerance,
+            )
+            .drop("_cutoff")
+        )
+
+
+def _maybe_drop_ts(lf: pl.LazyFrame, drop_ts: bool) -> pl.LazyFrame:
+    return lf.drop("ts") if drop_ts else lf
