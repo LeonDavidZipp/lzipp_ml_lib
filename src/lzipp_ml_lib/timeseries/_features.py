@@ -91,7 +91,7 @@ class TimeseriesFeatures:
     Each method adds columns and keeps `ts` unless `drop_ts=True`, so they compose
     with `pipe`:
 
-        fe = TSFeatureEngineer(horizon="1d").fit(train)
+        fe = TimeseriesFeatures(horizon="1d").fit(train)
         features = (
             train.pipe(fe.lag, daily=(1, 7))
             .pipe(fe.rolling, windows=("7d",))
