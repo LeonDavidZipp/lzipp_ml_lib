@@ -107,7 +107,7 @@ def _approx_seconds(duration: str) -> float:
     return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
 
 
-class TSFeatureEngineer:
+class TSFeatures:
     """Feature builders for a `ts` / `val` time series.
 
     Each method adds columns and keeps `ts` unless `drop_ts=True`, so they compose
