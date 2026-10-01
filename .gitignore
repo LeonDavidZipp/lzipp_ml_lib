@@ -1,0 +1,14 @@
+# python
+.pixi/*
+!.pixi/config.toml
+**/__pycache__
+
+# data
+**/data2
+
+# vscode
+**/.DS_Store
+**/.vscode
+
+# other
+**/*.png

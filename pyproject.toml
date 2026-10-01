@@ -1,0 +1,45 @@
+[project]
+authors = [{name = "lzipp", email = "leondavidzipp@proton.me"}]
+dependencies = ["matplotlib>=3.11.2,<4", "seaborn>=0.13.2,<0.14", "pyarrow>=25.0.1,<26"]
+name = "ml-training"
+requires-python = ">= 3.11"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+ml_training = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+fmt = "pixi exec ruff format && pixi exec ruff check --fix"
+lint = "pixi exec ruff check"
+
+[tool.pixi.dependencies]
+scikit-learn = ">=1.9.1,<2"
+python = ">=3.14"
+polars = ">=1.44.2,<2"
+pandas = ">=3.0.6,<4"
+ipykernel = ">=7.3.0,<8"
+scipy = ">=1.18.1,<2"
+statsmodels = ">=0.15.0,<0.16"
+numpy = ">=2.5.3,<3"
+scipy-stubs = ">=1.18.1.1,<2"
+fastexcel = ">=0.21.0,<0.22"
+xgboost = ">=3.4.2,<4"
+mypy = ">=2.3.1,<3"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = "*"
+ipykernel = "*"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+
+[dependency-groups]
+dev = ["graphviz>=0.21,<0.22"]
