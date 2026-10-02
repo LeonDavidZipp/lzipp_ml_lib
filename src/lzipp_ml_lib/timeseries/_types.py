@@ -4,7 +4,7 @@ import dataframely as dy
 import polars as pl
 
 
-class TSSchema(dy.Schema):
+class TimeseriesSchema(dy.Schema):
     ts = dy.Datetime(nullable=False, unique=True)
     val = dy.Float(nullable=False, allow_inf=False, allow_nan=False)
 

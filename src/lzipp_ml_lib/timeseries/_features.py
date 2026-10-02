@@ -1,6 +1,7 @@
 import re
 from collections.abc import Callable, Sequence
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Self
 
 import dataframely as dy
@@ -13,8 +14,8 @@ from ._types import (
     CyclicalFeature,
     ProfileKey,
     RollingStat,
+    TimeseriesSchema,
     TrendUnit,
-    TSSchema,
 )
 
 _ts = pl.col("ts")
@@ -62,12 +63,14 @@ _ROLLING: dict[str, Callable[[str], pl.Expr]] = {
 }
 
 # Approximate unit lengths, only used to compare durations against the horizon.
+_DAY_SEC = 86400
+_YEAR_DAYS = 365.25
 _UNIT_SECONDS = {
-    "y": 365.25 * 86400,
-    "q": 91.31 * 86400,
-    "mo": 30.44 * 86400,
-    "w": 7 * 86400,
-    "d": 86400,
+    "y": _YEAR_DAYS * _DAY_SEC,
+    "q": _YEAR_DAYS / 4 * _DAY_SEC,
+    "mo": _YEAR_DAYS / 12 * _DAY_SEC,
+    "w": 7 * _DAY_SEC,
+    "d": _DAY_SEC,
     "h": 3600,
     "m": 60,
     "s": 1,
@@ -75,6 +78,7 @@ _UNIT_SECONDS = {
 _DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
 
 
+@lru_cache()
 def _approx_seconds(duration: str) -> float:
     parts = _DURATION.findall(duration)
     if not parts or "".join(n + u for n, u in parts) != duration:
@@ -127,13 +131,13 @@ class TimeseriesFeatures:
         self._origin: datetime | None = None
         self._profiles: dict[str, pl.DataFrame] = {}
 
-    def fit(self, lf: dy.LazyFrame[TSSchema]) -> Self:
+    def fit(self, lf: dy.LazyFrame[TimeseriesSchema]) -> Self:
         """Learn the training-set values used by `trend` and `profile`.
 
         Collects `lf`.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Training data.
+            lf (dy.LazyFrame[TimeseriesSchema]): Training data.
 
         Returns:
             Self: The fitted feature engineer, for chaining.
@@ -151,7 +155,7 @@ class TimeseriesFeatures:
 
     def lag(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         yearly: Sequence[int] | None = None,
         monthly: Sequence[int] | None = None,
         weekly: Sequence[int] | None = None,
@@ -169,8 +173,8 @@ class TimeseriesFeatures:
         units back get a null.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a unique `ts` datetime column and
-                a `val` column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a unique `ts` datetime
+                column and a `val` column.
             yearly (Sequence[int] | None): Yearly lags, named `lag_{n}y`, e.g. `(1,)`
                 adds `lag_1y`. Defaults to None.
             monthly (Sequence[int] | None): Monthly lags, named `lag_{n}mo`.
@@ -238,7 +242,7 @@ class TimeseriesFeatures:
 
     def lag_diff(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         pairs: Sequence[tuple[str, str]],
         ratio: bool = False,
         drop_ts: bool = False,
@@ -247,8 +251,8 @@ class TimeseriesFeatures:
         """Add differences (and optionally ratios) between existing lag columns.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame that already has the lag columns, e.g.
-                the output of `lag`.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
+                e.g. the output of `lag`.
             pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
                 `[("lag_1d", "lag_7d")]` adds `lag_1d_minus_lag_7d`.
             ratio (bool): Also add `{a}_over_{b}`, null where `b` is 0. Defaults to
@@ -273,7 +277,7 @@ class TimeseriesFeatures:
 
     def rolling(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         windows: Sequence[str],
         stats: Sequence[RollingStat] = ("mean", "std"),
         drop_ts: bool = False,
@@ -286,7 +290,7 @@ class TimeseriesFeatures:
         including the row's own value.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with `ts` and `val` columns.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
             windows (Sequence[str]): Window lengths as polars durations, e.g.
                 `("24h", "7d")`.
             stats (Sequence[RollingStat]): Statistics to compute. Defaults to
@@ -310,7 +314,7 @@ class TimeseriesFeatures:
 
     def ewm(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         half_lives: Sequence[str],
         drop_ts: bool = False,
         drop_nulls: bool = False,
@@ -321,7 +325,7 @@ class TimeseriesFeatures:
         time.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with `ts` and `val` columns.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
             half_lives (Sequence[str]): Half-lives as polars durations, e.g.
                 `("1d", "7d")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
@@ -342,14 +346,14 @@ class TimeseriesFeatures:
 
     def gap(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         drop_ts: bool = False,
         drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add the time since the latest observation available at prediction time.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` column.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
@@ -369,7 +373,7 @@ class TimeseriesFeatures:
 
     def cyclical(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         features: Sequence[CyclicalFeature] = ("month", "weekday", "hour"),
         harmonics: int = 1,
         drop_ts: bool = False,
@@ -378,7 +382,7 @@ class TimeseriesFeatures:
         """Add sine/cosine (Fourier) encodings of cyclical calendar features.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             features (Sequence[CyclicalFeature]): Cycles to encode. Defaults to
                 `("month", "weekday", "hour")`.
             harmonics (int): Number of sine/cosine pairs per cycle. Harmonic `k`
@@ -409,7 +413,7 @@ class TimeseriesFeatures:
 
     def calendar(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         features: Sequence[CalendarFeature] = ("quarter", "month", "day", "hour"),
         drop_ts: bool = False,
         drop_nulls: bool = False,
@@ -417,7 +421,7 @@ class TimeseriesFeatures:
         """Add raw calendar features.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             features (Sequence[CalendarFeature]): Features to add, each named as in
                 the literal. Defaults to `("quarter", "month", "day", "hour")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
@@ -432,7 +436,7 @@ class TimeseriesFeatures:
 
     def holiday(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         country: str,
         subdiv: str | None = None,
         drop_ts: bool = False,
@@ -443,7 +447,7 @@ class TimeseriesFeatures:
         Collects the min and max year of `ts` to build the holiday calendar.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             country (str): ISO country code, e.g. `"DE"`.
             subdiv (str | None): Subdivision code, e.g. `"BY"` for Bavaria.
                 Defaults to None (national holidays only).
@@ -502,7 +506,7 @@ class TimeseriesFeatures:
 
     def trend(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         unit: TrendUnit = "h",
         drop_ts: bool = False,
         drop_nulls: bool = False,
@@ -513,7 +517,7 @@ class TimeseriesFeatures:
         range; consider detrending the target instead.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             unit (TrendUnit): Unit of the time index. Defaults to `"h"`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
@@ -539,7 +543,7 @@ class TimeseriesFeatures:
 
     def profile(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         keys: Sequence[ProfileKey] = ("hour_of_week",),
         drop_ts: bool = False,
         drop_nulls: bool = False,
@@ -551,7 +555,7 @@ class TimeseriesFeatures:
         many periods' worth of data.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             keys (Sequence[ProfileKey]): Periods to average over, e.g. `"hour_of_week"`
                 gives the mean for each weekday/hour combination. Defaults to
                 `("hour_of_week",)`.
@@ -583,7 +587,7 @@ class TimeseriesFeatures:
 
     def exogenous(
         self,
-        lf: dy.LazyFrame[TSSchema],
+        lf: dy.LazyFrame[TimeseriesSchema],
         exog: pl.LazyFrame,
         known_in_advance: bool = True,
         tolerance: str | None = None,
@@ -595,7 +599,7 @@ class TimeseriesFeatures:
         Each row gets the latest `exog` row at or before its timestamp.
 
         Args:
-            lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
             exog (pl.LazyFrame): Frame with a `ts` column (sorted, same dtype as in
                 `lf`) and the feature columns.
             known_in_advance (bool): Whether the values are known at prediction
