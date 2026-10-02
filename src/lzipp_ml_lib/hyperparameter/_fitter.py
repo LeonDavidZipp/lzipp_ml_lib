@@ -26,6 +26,7 @@ from sklearn.metrics import (
 from ._space import HyperparameterSpace
 
 M = TypeVar("M", bound=xgb.XGBModel | Prophet)
+R = TypeVar("R", bound=xgb.XGBRegressor)
 RegressionEvalMetric = Literal["mape", "mae", "rmse", "mse", "r2"]
 FinalFitData = Literal["train", "train_val", "train_val_test"]
 ClassificationEvalMetric = Literal[
@@ -126,13 +127,39 @@ def _join_final_fit_data(
     return pl.concat(x for x, _ in parts), pl.concat(y for _, y in parts)
 
 
-_REGRESSION_DIRECTIONS = (
-    StudyDirection.MINIMIZE,  # mape
-    StudyDirection.MINIMIZE,  # mae
-    StudyDirection.MINIMIZE,  # rmse
-    StudyDirection.MINIMIZE,  # mse
-    StudyDirection.MAXIMIZE,  # r2
-)
+def _fit_any_xgb_regressor(
+    model_type: type[R],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    metric: RegressionEvalMetric,
+) -> RegressionFitResult[R]:
+    def objective(trial: rustuna.Trial) -> float:
+        params = search_space.suggest(trial)
+        if "early_stopping_rounds" not in search_space:
+            params["early_stopping_rounds"] = early_stopping_rounds
+        model = model_type(**params)
+        model.fit(x_train, y_train, eval_set=eval_set)
+        y_pred = model.predict(x_test)
+        return float(_METRICS[metric](y_test, y_pred))
+
+    study = rustuna.create_study(direction=_DIRECTIONS[metric])
+    study.optimize(objective, n_trials=n_trials)
+    x_final, y_final = _join_final_fit_data(
+        final_fit_data, x_train, y_train, eval_set, x_test, y_test
+    )
+    best_model = model_type(**study.best_trial.params)
+    best_model.fit(x_final, y_final)
+    y_pred_final = best_model.predict(y_test)
+    return RegressionFitResult(
+        best_model, RegressionMetrics.calculate(y_test, y_pred_final)
+    )
 
 
 def fit_xgb_regressor(
@@ -208,26 +235,18 @@ def fit_xgb_regressor(
         ```
     """
     search_space = search_space or HyperparameterSpace.default_xgb_regressor()
-
-    def objective(trial: rustuna.Trial) -> float:
-        params = search_space.suggest(trial)
-        if "early_stopping_rounds" not in search_space:
-            params["early_stopping_rounds"] = early_stopping_rounds
-        model = xgb.XGBRegressor(**params)
-        model.fit(x_train, y_train, eval_set=eval_set)
-        y_pred = model.predict(x_test)
-        return float(_METRICS[metric](y_test, y_pred))
-
-    study = rustuna.create_study(direction=_DIRECTIONS[metric])
-    study.optimize(objective, n_trials=n_trials)
-    x_final, y_final = _join_final_fit_data(
-        final_fit_data, x_train, y_train, eval_set, x_test, y_test
-    )
-    best_model = xgb.XGBRegressor(**study.best_trial.params)
-    best_model.fit(x_final, y_final)
-    y_pred_final = best_model.predict(y_test)
-    return RegressionFitResult(
-        best_model, RegressionMetrics.calculate(y_test, y_pred_final)
+    return _fit_any_xgb_regressor(
+        model_type=xgb.XGBRegressor,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        metric=metric,
     )
 
 
@@ -300,26 +319,18 @@ def fit_xgb_rf_regressor(
         ```
     """
     search_space = search_space or HyperparameterSpace.default_xgb_rf_regressor()
-
-    def objective(trial: rustuna.Trial) -> float:
-        params = search_space.suggest(trial)
-        if "early_stopping_rounds" not in search_space:
-            params["early_stopping_rounds"] = early_stopping_rounds
-        model = xgb.XGBRFRegressor(**params)
-        model.fit(x_train, y_train, eval_set=eval_set)
-        y_pred = model.predict(x_test)
-        return float(_METRICS[metric](y_test, y_pred))
-
-    study = rustuna.create_study(direction=_DIRECTIONS[metric])
-    study.optimize(objective, n_trials=n_trials)
-    x_final, y_final = _join_final_fit_data(
-        final_fit_data, x_train, y_train, eval_set, x_test, y_test
-    )
-    best_model = xgb.XGBRFRegressor(**study.best_trial.params)
-    best_model.fit(x_final, y_final)
-    y_pred_final = best_model.predict(y_test)
-    return RegressionFitResult(
-        best_model, RegressionMetrics.calculate(y_test, y_pred_final)
+    return _fit_any_xgb_regressor(
+        model_type=xgb.XGBRFRegressor,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        metric=metric,
     )
 
 
