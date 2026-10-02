@@ -5,7 +5,8 @@ respect-gitignore = false
 show-fixes = true
 exclude = [
 	"submodules",
-	".pixi"
+	".pixi",
+	".venv"
 ]
 
 [lint]
