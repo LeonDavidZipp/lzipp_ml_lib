@@ -135,9 +135,9 @@ class TimeseriesFeatures:
     def prepare(
         lf: pl.LazyFrame, unique: bool = True, sort: bool = True
     ) -> tuple[dy.LazyFrame[TimeseriesSchema], dy.FailureInfo]:
-        """Prepares the LazyFrame to ensure it is passable to the classes other methods.
-        Returns both the prepared LazyFrame as well as potential failures encountered
-        in the preparation.
+        """Prepares the LazyFrame to ensure it is passable to the classes' other
+        methods. Returns both the prepared LazyFrame as well as potential failures
+        encountered in the preparation.
 
         Args:
             lf (pl.LazyFrame): The LazyFrame to be prepared. Should contain both a 'ts'
