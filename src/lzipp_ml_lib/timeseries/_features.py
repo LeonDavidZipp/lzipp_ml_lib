@@ -131,6 +131,34 @@ class TimeseriesFeatures:
         self._origin: datetime | None = None
         self._profiles: dict[str, pl.DataFrame] = {}
 
+    @staticmethod
+    def prepare(
+        lf: pl.LazyFrame, unique: bool = True, sort: bool = True
+    ) -> tuple[dy.LazyFrame[TimeseriesSchema], dy.FailureInfo]:
+        """Prepares the LazyFrame to ensure it is passable to the classes other methods.
+        Returns both the prepared LazyFrame as well as potential failures encountered
+        in the preparation.
+
+        Args:
+            lf (pl.LazyFrame): The LazyFrame to be prepared. Should contain both a 'ts'
+                and a 'val' column
+            unique (bool): Whether to drop duplicate timestamps. Keeps the first
+                occurence of duplicate values. Defaults to True.
+            sort (bool): Whether to sort the data. Keeps the first
+                occurence of duplicate values. Defaults to True.
+
+        Returns:
+            tuple[dy.LazyFrame[TimeSeriesSchema], dy.FailureInfo]: A tuple containing
+                the prepared LazyFrame as well as failure info.
+        """
+        out = lf
+        if unique:
+            out = out.unique("ts", keep="first")
+        if sort:
+            out = out.sort(by="ts")
+        info = TimeseriesSchema.filter(out, cast=True)
+        return info.result, info.failure
+
     def fit(self, lf: dy.LazyFrame[TimeseriesSchema]) -> Self:
         """Learn the training-set values used by `trend` and `profile`.
 
