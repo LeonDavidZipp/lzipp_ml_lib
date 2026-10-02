@@ -4,8 +4,8 @@ from ._types import (
     CyclicalFeature,
     ProfileKey,
     RollingStat,
+    TimeseriesSchema,
     TrendUnit,
-    TSSchema,
 )
 
 __all__ = [
@@ -13,7 +13,7 @@ __all__ = [
     "CyclicalFeature",
     "ProfileKey",
     "RollingStat",
-    "TSSchema",
+    "TimeseriesSchema",
     "TimeseriesFeatures",
     "TrendUnit",
 ]
