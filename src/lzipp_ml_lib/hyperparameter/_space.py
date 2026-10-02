@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Self, TypeVar
+from typing import Self
 
 import xgboost as xgb
 from prophet import Prophet
 from rustuna import Trial
 
-M = TypeVar("M", bound=xgb.XGBModel | Prophet)
 CategoricalChoiceType = float | int | str | bool | None
 
 

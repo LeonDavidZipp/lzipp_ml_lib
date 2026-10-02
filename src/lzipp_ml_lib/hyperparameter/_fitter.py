@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic
+from typing import Generic, TypeVar
 
 import dataframely as dy
 import polars as pl
@@ -8,7 +8,9 @@ import rustuna
 import xgboost as xgb
 from prophet import Prophet
 
-from ._space import HyperparameterSpace, M
+from ._space import HyperparameterSpace
+
+M = TypeVar("M", bound=xgb.XGBModel | Prophet)
 
 
 @dataclass
