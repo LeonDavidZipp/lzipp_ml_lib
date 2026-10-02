@@ -156,7 +156,7 @@ def _fit_any_xgb_regressor(
     )
     best_model = model_type(**study.best_trial.params)
     best_model.fit(x_final, y_final)
-    y_pred_final = best_model.predict(y_test)
+    y_pred_final = best_model.predict(x_test)
     return RegressionFitResult(
         best_model, RegressionMetrics.calculate(y_test, y_pred_final)
     )
