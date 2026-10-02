@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Generic, Literal, Self, TypeVar
@@ -135,17 +136,30 @@ def _fit_any_xgb_regressor(
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
     search_space: HyperparameterSpace,
-    early_stopping_rounds: int,
+    early_stopping_rounds: int | None,
     n_trials: int,
     final_fit_data: FinalFitData,
     metric: RegressionEvalMetric,
 ) -> RegressionFitResult[R]:
+    if early_stopping_rounds is not None and not eval_set:
+        warnings.warn(
+            f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
+            "eval_set was passed; trials train all n_estimators rounds",
+            stacklevel=3,
+        )
+
     def objective(trial: rustuna.Trial) -> float:
         params = search_space.suggest(trial)
-        if "early_stopping_rounds" not in search_space:
+        if (
+            early_stopping_rounds is not None
+            and eval_set
+            and "early_stopping_rounds" not in search_space
+        ):
             params["early_stopping_rounds"] = early_stopping_rounds
         model = model_type(**params)
         model.fit(x_train, y_train, eval_set=eval_set)
+        if params.get("early_stopping_rounds") is not None:
+            trial.set_user_attr("n_estimators", str(model.best_iteration + 1))
         y_pred = model.predict(x_test)
         return float(_METRICS[metric](y_test, y_pred))
 
@@ -154,7 +168,13 @@ def _fit_any_xgb_regressor(
     x_final, y_final = _join_final_fit_data(
         final_fit_data, x_train, y_train, eval_set, x_test, y_test
     )
-    best_model = model_type(**study.best_trial.params)
+    # The final fit has no eval_set to stop on (it may be part of the final data),
+    # so train exactly as many rounds as the best trial used instead.
+    best_params = dict(study.best_trial.params)
+    best_params.pop("early_stopping_rounds", None)
+    if "n_estimators" in study.best_trial.user_attrs:
+        best_params["n_estimators"] = int(study.best_trial.user_attrs["n_estimators"])
+    best_model = model_type(**best_params)
     best_model.fit(x_final, y_final)
     y_pred_final = best_model.predict(x_test)
     return RegressionFitResult(
@@ -194,8 +214,10 @@ def fit_xgb_regressor(
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
         early_stopping_rounds (int): Stop a trial's boosting after this many rounds
-            without improvement on the last `eval_set` pair. Ignored if
-            `search_space` tunes `early_stopping_rounds` itself. Defaults to 50.
+            without improvement on the last `eval_set` pair; the final model is
+            then trained for as many rounds as the best trial used. Ignored
+            without an `eval_set` or if `search_space` tunes
+            `early_stopping_rounds` itself. Defaults to 50.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
@@ -257,7 +279,6 @@ def fit_xgb_rf_regressor(
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
-    early_stopping_rounds: int = 50,
     n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
     metric: RegressionEvalMetric = "mape",
@@ -276,16 +297,11 @@ def fit_xgb_rf_regressor(
             are the returned metrics.
         y_test (pl.DataFrame): Test target.
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
-            `(x, y)` pairs XGBoost monitors during each trial's fit; the last one
-            is used for early stopping. Defaults to None.
+            `(x, y)` pairs XGBoost monitors during each trial's fit. Defaults to
+            None.
         search_space (HyperparameterSpace | None): The hyperparameter space used
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
-        early_stopping_rounds (int): Stop a trial's boosting after this many rounds
-            without improvement on the last `eval_set` pair. A random forest is
-            built in a single boosting round, so this has practically no effect.
-            Ignored if `search_space` tunes `early_stopping_rounds` itself.
-            Defaults to 50.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
@@ -327,7 +343,7 @@ def fit_xgb_rf_regressor(
         y_test=y_test,
         eval_set=eval_set,
         search_space=search_space,
-        early_stopping_rounds=early_stopping_rounds,
+        early_stopping_rounds=None,  # unsupported by XGBRFRegressor
         n_trials=n_trials,
         final_fit_data=final_fit_data,
         metric=metric,
