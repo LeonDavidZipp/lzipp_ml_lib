@@ -71,8 +71,12 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
         """
         if issubclass(model_type, xgb.XGBRegressor):
             return cls.default_xgb_regressor()
+        elif issubclass(model_type, xgb.XGBRFRegressor):
+            return cls.default_xgb_rf_regressor()
         elif issubclass(model_type, xgb.XGBClassifier):
             return cls.default_xgb_classifier()
+        elif issubclass(model_type, xgb.XGBRFClassifier):
+            return cls.default_xgb_rf_classifier()
         elif issubclass(model_type, xgb.XGBRanker):
             return cls.default_xgb_ranker()
         elif issubclass(model_type, Prophet):
@@ -113,9 +117,34 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
         )
 
     @classmethod
+    def default_xgb_rf_regressor(cls) -> Self:
+        """Standard search space for XGBoost Random Forest regression tasks."""
+        return cls(
+            {
+                "n_estimators": IntegerDimension(
+                    "n_estimators", low=100, high=1000, step=50
+                ),
+                "max_depth": IntegerDimension("max_depth", low=5, high=20),
+                "subsample": FloatDimension("subsample", low=0.5, high=0.95),
+                "colsample_bynode": FloatDimension(
+                    "colsample_bynode", low=0.4, high=0.9
+                ),
+                "min_child_weight": IntegerDimension(
+                    "min_child_weight", low=1, high=10
+                ),
+            }
+        )
+
+    @classmethod
     def default_xgb_classifier(cls) -> Self:
         """Standard search space for XGBoost classification tasks."""
         space = cls.default_xgb_regressor()
+        return space
+
+    @classmethod
+    def default_xgb_rf_classifier(cls) -> Self:
+        """Standard search space for XGBoost Random Forest classification tasks."""
+        space = cls.default_xgb_rf_regressor()
         return space
 
     @classmethod
