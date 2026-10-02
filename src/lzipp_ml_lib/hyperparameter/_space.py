@@ -62,6 +62,9 @@ class FloatDimension(HyperparameterDimension):
 class HyperparameterSpace(dict[str, HyperparameterDimension]):
     """Hyperparameter space containing the parameter names and the dimensions"""
 
+    def suggest(self, trial: Trial) -> dict[str, int | float | CategoricalChoiceType]:
+        return {key: val.suggest(trial) for key, val in self.items()}
+
     @classmethod
     def default_space_from_model(
         cls, model_type: type[xgb.XGBModel] | type[Prophet]
