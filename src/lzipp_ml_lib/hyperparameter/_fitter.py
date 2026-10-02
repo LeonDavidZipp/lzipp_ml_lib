@@ -38,7 +38,7 @@ def fit_xgb_regressor(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    hyperparameter_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
 ) -> HyperparameterFitResult[xgb.XGBRegressor]: ...
 
@@ -47,7 +47,7 @@ def fit_xgb_rf_regressor(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    hyperparameter_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
 ) -> HyperparameterFitResult[xgb.XGBRFRegressor]: ...
 
@@ -56,10 +56,10 @@ def fit_xgb_classifier(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    hyperparameter_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
 ) -> HyperparameterFitResult[xgb.XGBClassifier]:
-    # space = hyperparameter_space or HyperparameterSpace.default_space_from_model(
+    # space = search_space or HyperparameterSpace.default_space_from_model(
     #     self._model_type
     # )
 
@@ -81,30 +81,71 @@ def fit_xgb_rf_classifier(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    hyperparameter_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
 ) -> HyperparameterFitResult[xgb.XGBRFClassifier]: ...
 
 
 class ProphetSchema(dy.Schema):
-    ts = dy.Datetime(nullable=False, unique=True)
+    ds = dy.Datetime(nullable=False, unique=True)
     y = dy.Float(nullable=False, allow_inf=False, allow_nan=False)
 
     @dy.rule()
     def min_data_points(cls) -> pl.Expr:
-        return pl.len() >= 100
+        return pl.col("ds").unique().len() >= 100
+
+    @dy.rule()
+    def is_sorted(cls) -> pl.Expr:
+        return pl.col("ds").is_sorted(descending=False)
 
 
 def fit_prophet(
-    df_train: dy.DataFrame[ProphetSchema],
-    hyperparameter_space: HyperparameterSpace | None = None,
+    df: dy.DataFrame[ProphetSchema],
+    search_space: HyperparameterSpace | None = None,
+    cross_validation_threshold: int = 1000,
 ) -> HyperparameterFitResult[Prophet]:
-    space = hyperparameter_space or HyperparameterSpace.default_prophet()
+    """
+    Fits a prophet model.
+
+    Args:
+        df (dy.DataFrame[ProphetSchema]): A prophet-typical dataframe containing
+            'ds' and 'y' columns.
+        search_space (HyperparameterSpace | None): The hyperparameter space used
+            for optimization. If None, defaults to a basic hyperparameter space (see
+            below).
+        cross_validation_threshold (int): Number of datapoints needed to perform cross
+            validation instead of a train-test-split. Defaults to 1000.
+
+    Returns:
+        HyperparameterFitResult[Prophet]: The fitted model and associated metrics.
+
+    Default Hyperparameter Space:
+        If `search_space` is None, the following search space is used:
+
+        ```python
+        {
+            "changepoint_prior_scale": FloatDimension(
+                "changepoint_prior_scale", low=0.001, high=0.5, log=True
+            ),
+            "seasonality_prior_scale": FloatDimension(
+                "seasonality_prior_scale", low=0.01, high=10.0, log=True
+            ),
+            "holidays_prior_scale": FloatDimension(
+                "holidays_prior_scale", low=0.01, high=10.0, log=True
+            ),
+            "seasonality_mode": CategoricalDimension(
+                "seasonality_mode", choices=["additive", "multiplicative"]
+            ),
+            "changepoint_range": FloatDimension("changepoint_range", low=0.8, high=0.95),
+        }
+        ```
+    """
+    space = search_space or HyperparameterSpace.default_prophet()
 
     def objective(trial: rustuna.Trial) -> float:
         params = {key: val.suggest(trial) for key, val in space.items()}
         model = Prophet(**params)  # type: ignore
-        model.fit(df_train.to_pandas())
+        model.fit(df.to_pandas())
 
         # TODO: implement
         return 0.0
