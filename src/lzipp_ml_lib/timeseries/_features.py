@@ -160,6 +160,7 @@ class TimeseriesFeatures:
         minutely: Sequence[int] | None = None,
         secondly: Sequence[int] | None = None,
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add lagged copies of `val`.
 
@@ -185,6 +186,7 @@ class TimeseriesFeatures:
             secondly (Sequence[int] | None): Secondly lags, named `lag_{n}s`.
                 Defaults to None.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with the requested lag columns appended (without
@@ -232,7 +234,7 @@ class TimeseriesFeatures:
                     .join(past, on="_lag_ts", how="left", maintain_order="left")
                     .drop("_lag_ts")
                 )
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def lag_diff(
         self,
@@ -240,6 +242,7 @@ class TimeseriesFeatures:
         pairs: Sequence[tuple[str, str]],
         ratio: bool = False,
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add differences (and optionally ratios) between existing lag columns.
 
@@ -251,6 +254,7 @@ class TimeseriesFeatures:
             ratio (bool): Also add `{a}_over_{b}`, null where `b` is 0. Defaults to
                 False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with the difference (and ratio) columns appended
@@ -265,7 +269,7 @@ class TimeseriesFeatures:
                     .then(pl.col(a) / pl.col(b))
                     .alias(f"{a}_over_{b}")
                 )
-        return _maybe_drop_ts(lf.with_columns(features), drop_ts)
+        return _cleanup(lf.with_columns(features), drop_ts, drop_nulls)
 
     def rolling(
         self,
@@ -273,6 +277,7 @@ class TimeseriesFeatures:
         windows: Sequence[str],
         stats: Sequence[RollingStat] = ("mean", "std"),
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add rolling statistics of past `val`s.
 
@@ -287,6 +292,7 @@ class TimeseriesFeatures:
             stats (Sequence[RollingStat]): Statistics to compute. Defaults to
                 `("mean", "std")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `roll_{stat}_{window}` columns appended
@@ -300,13 +306,14 @@ class TimeseriesFeatures:
                 for stat in stats
             ),
         )
-        return _maybe_drop_ts(self._latest_available(lf, values), drop_ts)
+        return _cleanup(self._latest_available(lf, values), drop_ts, drop_nulls)
 
     def ewm(
         self,
         lf: dy.LazyFrame[TSSchema],
         half_lives: Sequence[str],
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add exponentially weighted means of past `val`s.
 
@@ -318,6 +325,7 @@ class TimeseriesFeatures:
             half_lives (Sequence[str]): Half-lives as polars durations, e.g.
                 `("1d", "7d")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `ewm_{half_life}` columns appended (without `ts`
@@ -330,14 +338,20 @@ class TimeseriesFeatures:
                 for hl in half_lives
             ),
         )
-        return _maybe_drop_ts(self._latest_available(lf, values), drop_ts)
+        return _cleanup(self._latest_available(lf, values), drop_ts, drop_nulls)
 
-    def gap(self, lf: dy.LazyFrame[TSSchema], drop_ts: bool = False) -> pl.LazyFrame:
+    def gap(
+        self,
+        lf: dy.LazyFrame[TSSchema],
+        drop_ts: bool = False,
+        drop_nulls: bool = False,
+    ) -> pl.LazyFrame:
         """Add the time since the latest observation available at prediction time.
 
         Args:
             lf (dy.LazyFrame[TSSchema]): Frame with a `ts` column.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `secs_since_last_obs` appended (without `ts` if
@@ -351,7 +365,7 @@ class TimeseriesFeatures:
             )
             .drop("_last_obs_ts")
         )
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def cyclical(
         self,
@@ -359,6 +373,7 @@ class TimeseriesFeatures:
         features: Sequence[CyclicalFeature] = ("month", "weekday", "hour"),
         harmonics: int = 1,
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add sine/cosine (Fourier) encodings of cyclical calendar features.
 
@@ -370,6 +385,7 @@ class TimeseriesFeatures:
                 repeats `k` times per cycle and lets the model fit sharper
                 seasonal shapes. Defaults to 1.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `{feature}_sin` / `{feature}_cos` appended, plus
@@ -389,13 +405,14 @@ class TimeseriesFeatures:
                 suffix = "" if k == 1 else str(k)
                 exprs.append(angle.sin().alias(f"{name}_sin{suffix}"))
                 exprs.append(angle.cos().alias(f"{name}_cos{suffix}"))
-        return _maybe_drop_ts(lf.with_columns(exprs), drop_ts)
+        return _cleanup(lf.with_columns(exprs), drop_ts, drop_nulls)
 
     def calendar(
         self,
         lf: dy.LazyFrame[TSSchema],
         features: Sequence[CalendarFeature] = ("quarter", "month", "day", "hour"),
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add raw calendar features.
 
@@ -404,13 +421,14 @@ class TimeseriesFeatures:
             features (Sequence[CalendarFeature]): Features to add, each named as in
                 the literal. Defaults to `("quarter", "month", "day", "hour")`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with the requested calendar columns appended (without
                 `ts` if `drop_ts`).
         """
         out = lf.with_columns(_CALENDAR[name].alias(name) for name in features)
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def holiday(
         self,
@@ -418,6 +436,7 @@ class TimeseriesFeatures:
         country: str,
         subdiv: str | None = None,
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add public holiday features from the `holidays` package.
 
@@ -429,6 +448,7 @@ class TimeseriesFeatures:
             subdiv (str | None): Subdivision code, e.g. `"BY"` for Bavaria.
                 Defaults to None (national holidays only).
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `is_holiday`, `days_to_holiday`,
@@ -478,13 +498,14 @@ class TimeseriesFeatures:
             .join(days.lazy(), on="_date", how="left", maintain_order="left")
             .drop("_date")
         )
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def trend(
         self,
         lf: dy.LazyFrame[TSSchema],
         unit: TrendUnit = "h",
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add trend features relative to the training data seen by `fit`.
 
@@ -495,6 +516,7 @@ class TimeseriesFeatures:
             lf (dy.LazyFrame[TSSchema]): Frame with a `ts` datetime column.
             unit (TrendUnit): Unit of the time index. Defaults to `"h"`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `diff_from_min_year` (years since the first
@@ -513,13 +535,14 @@ class TimeseriesFeatures:
                 / _UNIT_SECONDS[unit]
             },
         )
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def profile(
         self,
         lf: dy.LazyFrame[TSSchema],
         keys: Sequence[ProfileKey] = ("hour_of_week",),
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add the training-set mean of `val` per seasonal period (target encoding).
 
@@ -533,6 +556,7 @@ class TimeseriesFeatures:
                 gives the mean for each weekday/hour combination. Defaults to
                 `("hour_of_week",)`.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with `profile_{key}` columns appended (without `ts` if
@@ -555,7 +579,7 @@ class TimeseriesFeatures:
                 )
                 .drop("_key")
             )
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def exogenous(
         self,
@@ -564,6 +588,7 @@ class TimeseriesFeatures:
         known_in_advance: bool = True,
         tolerance: str | None = None,
         drop_ts: bool = False,
+        drop_nulls: bool = False,
     ) -> pl.LazyFrame:
         """Add external series, e.g. weather or prices, matched by timestamp.
 
@@ -581,6 +606,7 @@ class TimeseriesFeatures:
                 polars duration, e.g. `"1h"`; farther matches become null.
                 Defaults to None (no limit).
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
             pl.LazyFrame: `lf` with the `exog` columns appended (without `ts` if
@@ -590,7 +616,7 @@ class TimeseriesFeatures:
             out = lf.join_asof(exog, on="ts", strategy="backward", tolerance=tolerance)
         else:
             out = self._latest_available(lf, exog, tolerance)
-        return _maybe_drop_ts(out, drop_ts)
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def _latest_available(
         self,
@@ -617,3 +643,13 @@ class TimeseriesFeatures:
 
 def _maybe_drop_ts(lf: pl.LazyFrame, drop_ts: bool) -> pl.LazyFrame:
     return lf.drop("ts") if drop_ts else lf
+
+
+def _maybe_drop_nulls(lf: pl.LazyFrame, drop_nulls: bool) -> pl.LazyFrame:
+    return lf.drop_nulls() if drop_nulls else lf
+
+
+def _cleanup(lf: pl.LazyFrame, drop_ts: bool, drop_nulls: bool) -> pl.LazyFrame:
+    out = _maybe_drop_ts(lf, drop_ts)
+    out = _maybe_drop_nulls(out, drop_nulls)
+    return out
