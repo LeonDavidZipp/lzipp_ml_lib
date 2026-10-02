@@ -69,14 +69,15 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
         """
         Dynamically return the correct default search space based on the model class.
         """
-        if issubclass(model_type, xgb.XGBRegressor):
-            return cls.default_xgb_regressor()
-        elif issubclass(model_type, xgb.XGBRFRegressor):
+        # The RF models subclass their boosting counterparts, so check them first.
+        if issubclass(model_type, xgb.XGBRFRegressor):
             return cls.default_xgb_rf_regressor()
-        elif issubclass(model_type, xgb.XGBClassifier):
-            return cls.default_xgb_classifier()
+        elif issubclass(model_type, xgb.XGBRegressor):
+            return cls.default_xgb_regressor()
         elif issubclass(model_type, xgb.XGBRFClassifier):
             return cls.default_xgb_rf_classifier()
+        elif issubclass(model_type, xgb.XGBClassifier):
+            return cls.default_xgb_classifier()
         elif issubclass(model_type, xgb.XGBRanker):
             return cls.default_xgb_ranker()
         elif issubclass(model_type, Prophet):

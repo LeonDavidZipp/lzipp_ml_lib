@@ -40,7 +40,48 @@ def fit_xgb_regressor(
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
-) -> HyperparameterFitResult[xgb.XGBRegressor]: ...
+) -> HyperparameterFitResult[xgb.XGBRegressor]:
+    """
+    Fits an XGBoost regressor.
+
+    Args:
+        x_train (pl.DataFrame): Training features.
+        y_train (pl.DataFrame): Training target.
+        eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
+            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+        search_space (HyperparameterSpace | None): The hyperparameter space used
+            for optimization. If None, defaults to a basic hyperparameter space (see
+            below).
+        refit_with_all (bool): Whether to refit the final model with the best
+            hyperparameters on the training data plus all `eval_set` data. Defaults
+            to False.
+
+    Returns:
+        HyperparameterFitResult[xgb.XGBRegressor]: The fitted model and associated
+            metrics.
+
+    Default Hyperparameter Space:
+        If `search_space` is None, the following search space is used:
+
+        ```python
+        {
+            "n_estimators": IntegerDimension(
+                "n_estimators", low=100, high=1000, step=50
+            ),
+            "max_depth": IntegerDimension("max_depth", low=3, high=10),
+            "learning_rate": FloatDimension(
+                "learning_rate", low=1e-3, high=0.3, log=True
+            ),
+            "subsample": FloatDimension("subsample", low=0.5, high=1.0),
+            "colsample_bytree": FloatDimension("colsample_bytree", low=0.5, high=1.0),
+            "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+            "gamma": FloatDimension("gamma", low=0.0, high=5.0),
+            "reg_alpha": FloatDimension("reg_alpha", low=1e-8, high=100.0, log=True),
+            "reg_lambda": FloatDimension("reg_lambda", low=1e-8, high=100.0, log=True),
+        }
+        ```
+    """
+    ...
 
 
 def fit_xgb_rf_regressor(
@@ -49,7 +90,42 @@ def fit_xgb_rf_regressor(
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
-) -> HyperparameterFitResult[xgb.XGBRFRegressor]: ...
+) -> HyperparameterFitResult[xgb.XGBRFRegressor]:
+    """
+    Fits an XGBoost random forest regressor.
+
+    Args:
+        x_train (pl.DataFrame): Training features.
+        y_train (pl.DataFrame): Training target.
+        eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
+            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+        search_space (HyperparameterSpace | None): The hyperparameter space used
+            for optimization. If None, defaults to a basic hyperparameter space (see
+            below).
+        refit_with_all (bool): Whether to refit the final model with the best
+            hyperparameters on the training data plus all `eval_set` data. Defaults
+            to False.
+
+    Returns:
+        HyperparameterFitResult[xgb.XGBRFRegressor]: The fitted model and associated
+            metrics.
+
+    Default Hyperparameter Space:
+        If `search_space` is None, the following search space is used:
+
+        ```python
+        {
+            "n_estimators": IntegerDimension(
+                "n_estimators", low=100, high=1000, step=50
+            ),
+            "max_depth": IntegerDimension("max_depth", low=5, high=20),
+            "subsample": FloatDimension("subsample", low=0.5, high=0.95),
+            "colsample_bynode": FloatDimension("colsample_bynode", low=0.4, high=0.9),
+            "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+        }
+        ```
+    """
+    ...
 
 
 def fit_xgb_classifier(
@@ -59,6 +135,46 @@ def fit_xgb_classifier(
     search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
 ) -> HyperparameterFitResult[xgb.XGBClassifier]:
+    """
+    Fits an XGBoost classifier.
+
+    Args:
+        x_train (pl.DataFrame): Training features.
+        y_train (pl.DataFrame): Training target.
+        eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
+            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+        search_space (HyperparameterSpace | None): The hyperparameter space used
+            for optimization. If None, defaults to a basic hyperparameter space (see
+            below).
+        refit_with_all (bool): Whether to refit the final model with the best
+            hyperparameters on the training data plus all `eval_set` data. Defaults
+            to False.
+
+    Returns:
+        HyperparameterFitResult[xgb.XGBClassifier]: The fitted model and associated
+            metrics.
+
+    Default Hyperparameter Space:
+        If `search_space` is None, the following search space is used:
+
+        ```python
+        {
+            "n_estimators": IntegerDimension(
+                "n_estimators", low=100, high=1000, step=50
+            ),
+            "max_depth": IntegerDimension("max_depth", low=3, high=10),
+            "learning_rate": FloatDimension(
+                "learning_rate", low=1e-3, high=0.3, log=True
+            ),
+            "subsample": FloatDimension("subsample", low=0.5, high=1.0),
+            "colsample_bytree": FloatDimension("colsample_bytree", low=0.5, high=1.0),
+            "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+            "gamma": FloatDimension("gamma", low=0.0, high=5.0),
+            "reg_alpha": FloatDimension("reg_alpha", low=1e-8, high=100.0, log=True),
+            "reg_lambda": FloatDimension("reg_lambda", low=1e-8, high=100.0, log=True),
+        }
+        ```
+    """
     # space = search_space or HyperparameterSpace.default_space_from_model(
     #     self._model_type
     # )
@@ -83,7 +199,42 @@ def fit_xgb_rf_classifier(
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
     refit_with_all: bool = False,
-) -> HyperparameterFitResult[xgb.XGBRFClassifier]: ...
+) -> HyperparameterFitResult[xgb.XGBRFClassifier]:
+    """
+    Fits an XGBoost random forest classifier.
+
+    Args:
+        x_train (pl.DataFrame): Training features.
+        y_train (pl.DataFrame): Training target.
+        eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
+            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+        search_space (HyperparameterSpace | None): The hyperparameter space used
+            for optimization. If None, defaults to a basic hyperparameter space (see
+            below).
+        refit_with_all (bool): Whether to refit the final model with the best
+            hyperparameters on the training data plus all `eval_set` data. Defaults
+            to False.
+
+    Returns:
+        HyperparameterFitResult[xgb.XGBRFClassifier]: The fitted model and associated
+            metrics.
+
+    Default Hyperparameter Space:
+        If `search_space` is None, the following search space is used:
+
+        ```python
+        {
+            "n_estimators": IntegerDimension(
+                "n_estimators", low=100, high=1000, step=50
+            ),
+            "max_depth": IntegerDimension("max_depth", low=5, high=20),
+            "subsample": FloatDimension("subsample", low=0.5, high=0.95),
+            "colsample_bynode": FloatDimension("colsample_bynode", low=0.4, high=0.9),
+            "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+        }
+        ```
+    """
+    ...
 
 
 class ProphetSchema(dy.Schema):
@@ -136,7 +287,9 @@ def fit_prophet(
             "seasonality_mode": CategoricalDimension(
                 "seasonality_mode", choices=["additive", "multiplicative"]
             ),
-            "changepoint_range": FloatDimension("changepoint_range", low=0.8, high=0.95),
+            "changepoint_range": FloatDimension(
+                "changepoint_range", low=0.8, high=0.95
+            ),
         }
         ```
     """
