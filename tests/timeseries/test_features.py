@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
@@ -6,8 +7,18 @@ import dataframely as dy
 import polars as pl
 import polars.testing as plt
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from lzipp_ml_lib import TimeseriesFeatures, TimeseriesSchema
+
+from ._composites import (
+    UNITS,
+    daily_with_calendar_lag,
+    grid_with_gaps,
+    messy_rows,
+    shift_back,
+)
 
 # ------------------------------------------------------------------------------------ #
 #                              TimeseriesFeatures.prepare                              #
@@ -101,6 +112,32 @@ def test_prepare_real_data(base_timeseries_lf: pl.LazyFrame) -> None:
         df.height == base_timeseries_lf.select(pl.col("ts").n_unique()).collect().item()
     )
     assert TimeseriesSchema.is_valid(df)
+
+
+@given(rows=messy_rows())
+def test_prepare_keeps_first_occurrence_of_valid_rows_sorted(
+    rows: list[tuple[datetime | None, float | None]],
+) -> None:
+    lf = pl.LazyFrame(
+        rows, schema={"ts": pl.Datetime("us"), "val": pl.Float64}, orient="row"
+    )
+
+    result, failure = TimeseriesFeatures.prepare(lf)
+    df = result.collect()
+
+    # Reference: keep the first row per timestamp (nulls form one group), then
+    # drop rows with a null timestamp or a non-finite value, then sort.
+    first: dict[datetime | None, float | None] = {}
+    for t, v in rows:
+        first.setdefault(t, v)
+    expected = sorted(
+        (t, v) for t, v in first.items() if t is not None and _is_finite(v)
+    )
+
+    assert TimeseriesSchema.is_valid(df)
+    assert df.rows() == expected
+    # Every deduplicated row is either kept or reported as a failure.
+    assert df.height + failure.invalid().height == len(first)
 
 
 # ------------------------------------------------------------------------------------ #
@@ -315,6 +352,29 @@ def test_lag_respects_horizon(lags: dict[str, Any], allowed: bool) -> None:
             fe.lag(lf, **lags)
 
 
+@given(
+    case=st.one_of(grid_with_gaps(), daily_with_calendar_lag()),
+    data=st.data(),
+)
+def test_lag_equals_value_exactly_n_units_earlier(
+    case: tuple[list[datetime], str, int], data: st.DataObject
+) -> None:
+    ts, unit, n = case
+    finite = st.floats(allow_nan=False, allow_infinity=False)
+    vals = data.draw(st.lists(finite, min_size=len(ts), max_size=len(ts)))
+    kwarg = next(k for k, u in UNITS.items() if u == unit)
+
+    lags: dict[str, Any] = {kwarg: (n,)}
+    out = TimeseriesFeatures().lag(_series_lf(ts, vals), **lags).collect()
+
+    by_ts = dict(zip(ts, vals))
+    expected = [by_ts.get(shift_back(t, n, unit)) for t in ts]
+    assert out[f"lag_{n}{unit}"].to_list() == expected
+    # Rows and their order are untouched.
+    assert out["ts"].to_list() == ts
+    assert out["val"].to_list() == vals
+
+
 # ------------------------------------------------------------------------------------ #
 #                                lag_diff / lag_ratios                                 #
 # ------------------------------------------------------------------------------------ #
@@ -499,6 +559,11 @@ def test_lag_pairs_lags_exist_still_validates(method: str) -> None:
 # ------------------------------------------------------------------------------------ #
 #                                       helpers                                        #
 # ------------------------------------------------------------------------------------ #
+
+
+def _is_finite(val: float | None) -> bool:
+    return val is not None and math.isfinite(val)
+
 
 _FIT_TS = [
     datetime(2023, 12, 31, 22),
