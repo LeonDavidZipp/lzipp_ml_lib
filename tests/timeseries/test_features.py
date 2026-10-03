@@ -316,6 +316,187 @@ def test_lag_respects_horizon(lags: dict[str, Any], allowed: bool) -> None:
 
 
 # ------------------------------------------------------------------------------------ #
+#                                lag_diff / lag_ratios                                 #
+# ------------------------------------------------------------------------------------ #
+
+
+def _counting_lf(hours: int) -> dy.LazyFrame[TimeseriesSchema]:
+    """Hourly data with val = 0, 1, 2, ..., so lag n of row i is i - n."""
+    ts = [_START + timedelta(hours=i) for i in range(hours)]
+    return _series_lf(ts, [float(i) for i in range(hours)])
+
+
+def test_lag_diff() -> None:
+    out = TimeseriesFeatures().lag_diff(_counting_lf(5), hourly=[(1, 2), (2, 1)])
+    df = out.collect()
+
+    # Only the requested columns are added; the looked-up lags are temporary.
+    assert df.columns == ["ts", "val", "lag_1h_minus_lag_2h", "lag_2h_minus_lag_1h"]
+    assert df["lag_1h_minus_lag_2h"].to_list() == [None, None, 1.0, 1.0, 1.0]
+    assert df["lag_2h_minus_lag_1h"].to_list() == [None, None, -1.0, -1.0, -1.0]
+
+
+def test_lag_ratios() -> None:
+    out = TimeseriesFeatures().lag_ratios(_counting_lf(5), hourly=[(1, 2)])
+    df = out.collect()
+
+    assert df.columns == ["ts", "val", "lag_1h_over_lag_2h"]
+    # Row 2 divides by lag_2h == 0, which gives null instead of inf.
+    assert df["lag_1h_over_lag_2h"].to_list() == [None, None, None, 2.0, 1.5]
+
+
+def test_lag_diff_matches_lag_columns() -> None:
+    lf = _counting_lf(24 * 10)
+    fe = TimeseriesFeatures()
+
+    lags = fe.lag(lf, daily=(1, 7)).collect()
+    diff = fe.lag_diff(lf, daily=[(1, 7)]).collect()
+
+    plt.assert_series_equal(
+        diff["lag_1d_minus_lag_7d"],
+        (lags["lag_1d"] - lags["lag_7d"]).alias("lag_1d_minus_lag_7d"),
+    )
+
+
+def test_lag_pairs_multiple_units() -> None:
+    out = TimeseriesFeatures().lag_diff(
+        _counting_lf(24 * 3), daily=[(1, 2)], hourly=[(1, 3)]
+    )
+
+    assert out.collect_schema().names()[2:] == [
+        "lag_1d_minus_lag_2d",
+        "lag_1h_minus_lag_3h",
+    ]
+    last = out.collect().row(-1, named=True)
+    assert (last["lag_1d_minus_lag_2d"], last["lag_1h_minus_lag_3h"]) == (24.0, 2.0)
+
+
+def test_lag_pairs_keep_existing_lag_columns() -> None:
+    # A frame that already has lag_1h from lag() keeps it untouched.
+    fe = TimeseriesFeatures()
+    lf = fe.lag(_counting_lf(5), hourly=(1,))
+
+    df = fe.lag_diff(lf, hourly=[(1, 2)]).collect()  # type: ignore[arg-type]
+
+    assert df.columns == ["ts", "val", "lag_1h", "lag_1h_minus_lag_2h"]
+    assert df["lag_1h"].to_list() == [None, 0.0, 1.0, 2.0, 3.0]
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+def test_lag_pairs_without_pairs_returns_input(method: str) -> None:
+    lf = _counting_lf(5)
+
+    out = getattr(TimeseriesFeatures(), method)(lf)
+
+    plt.assert_frame_equal(out.collect(), lf.collect())
+
+
+@pytest.mark.parametrize(
+    ("method", "drop_nulls", "expected_height"),
+    [
+        pytest.param("lag_diff", False, 5, id="diff-keep-nulls"),
+        # Rows 0-1 have no value 2 hours back.
+        pytest.param("lag_diff", True, 3, id="diff-drop-nulls"),
+        pytest.param("lag_ratios", False, 5, id="ratios-keep-nulls"),
+        # Rows 0-1 have no value 2 hours back, and row 2 divides by 0.
+        pytest.param("lag_ratios", True, 2, id="ratios-drop-nulls"),
+    ],
+)
+@pytest.mark.parametrize("drop_ts", [False, True])
+def test_lag_pairs_cleanup_flags(
+    method: str, drop_nulls: bool, expected_height: int, drop_ts: bool
+) -> None:
+    out = getattr(TimeseriesFeatures(), method)(
+        _counting_lf(5), hourly=[(1, 2)], drop_ts=drop_ts, drop_nulls=drop_nulls
+    ).collect()
+
+    assert ("ts" in out.columns) is not drop_ts
+    assert out.height == expected_height
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+@pytest.mark.parametrize(
+    ("pairs", "horizon", "match"),
+    [
+        pytest.param({"hourly": [(0, 1)]}, None, "positive integers", id="zero"),
+        pytest.param({"daily": [(1, -1)]}, None, "positive integers", id="negative"),
+        pytest.param(
+            {"hourly": [(1, 24)]}, "1d", "shorter than the horizon", id="horizon"
+        ),
+    ],
+)
+def test_lag_pairs_validate_lags(
+    method: str, pairs: dict[str, Any], horizon: str | None, match: str
+) -> None:
+    fe = TimeseriesFeatures(horizon=horizon)
+
+    with pytest.raises(ValueError, match=match):
+        getattr(fe, method)(_counting_lf(5), **pairs)
+
+
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        # lag_1h is overwritten with 10.0, so only the existing column can produce
+        # these values; a fresh lookup would give i - 1 - (i - 2) = 1.
+        pytest.param("lag_diff", [None, None, 10.0, 9.0, 8.0], id="diff"),
+        pytest.param("lag_ratios", [None, None, None, 10.0, 5.0], id="ratios"),
+    ],
+)
+def test_lag_pairs_lags_exist_uses_existing_columns(
+    method: str, expected: list[float | None]
+) -> None:
+    fe = TimeseriesFeatures()
+    lf = fe.lag(_counting_lf(5), hourly=(2,)).with_columns(lag_1h=pl.lit(10.0))
+
+    df = getattr(fe, method)(lf, hourly=[(1, 2)], lags_exist=True).collect()
+
+    op = "minus" if method == "lag_diff" else "over"
+    assert df.columns == ["ts", "val", "lag_2h", "lag_1h", f"lag_1h_{op}_lag_2h"]
+    assert df[f"lag_1h_{op}_lag_2h"].to_list() == expected
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+def test_lag_pairs_lags_exist_requires_columns(method: str) -> None:
+    lf = TimeseriesFeatures().lag(_counting_lf(5), hourly=(1,))  # no lag_2h
+
+    with pytest.raises(ValueError, match=r"no columns \['lag_2h'\]"):
+        getattr(TimeseriesFeatures(), method)(lf, hourly=[(1, 2)], lags_exist=True)
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+def test_lag_pairs_keep_lags(method: str) -> None:
+    fe = TimeseriesFeatures()
+    lf = _counting_lf(24 * 10)
+
+    df = getattr(fe, method)(lf, daily=[(1, 7)], keep_lags=True).collect()
+    lags = fe.lag(lf, daily=(1, 7)).collect()
+
+    op = "minus" if method == "lag_diff" else "over"
+    assert df.columns == ["ts", "val", "lag_1d", "lag_7d", f"lag_1d_{op}_lag_7d"]
+    plt.assert_frame_equal(
+        df.select("lag_1d", "lag_7d"), lags.select("lag_1d", "lag_7d")
+    )
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+def test_lag_pairs_keep_lags_refuses_to_overwrite(method: str) -> None:
+    lf = TimeseriesFeatures().lag(_counting_lf(5), hourly=(1,))
+
+    with pytest.raises(ValueError, match="pass lags_exist=True"):
+        getattr(TimeseriesFeatures(), method)(lf, hourly=[(1, 2)], keep_lags=True)
+
+
+@pytest.mark.parametrize("method", ["lag_diff", "lag_ratios"])
+def test_lag_pairs_lags_exist_still_validates(method: str) -> None:
+    fe = TimeseriesFeatures(horizon="1d")
+    lf = TimeseriesFeatures().lag(_counting_lf(5), hourly=(1, 2))
+
+    with pytest.raises(ValueError, match="shorter than the horizon"):
+        getattr(fe, method)(lf, hourly=[(1, 2)], lags_exist=True)
+
+
+# ------------------------------------------------------------------------------------ #
 #                                       helpers                                        #
 # ------------------------------------------------------------------------------------ #
 
