@@ -195,6 +195,8 @@ class TimeseriesFeatures:
         hourly: Sequence[tuple[int, int]] | None = None,
         minutely: Sequence[tuple[int, int]] | None = None,
         secondly: Sequence[tuple[int, int]] | None = None,
+        lags_exist: bool = False,
+        keep_lags: bool = False,
         drop_ts: bool = False,
         drop_nulls: bool = False,
     ) -> pl.LazyFrame:
@@ -219,6 +221,11 @@ class TimeseriesFeatures:
                 `lag_{a}m_minus_lag_{b}m`. Defaults to None.
             secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
                 `lag_{a}s_minus_lag_{b}s`. Defaults to None.
+            lags_exist (bool): Use the `lag_{n}{unit}` columns already in `lf`, e.g.
+                from `lag`, instead of looking the lags up. Defaults to False.
+            keep_lags (bool): Keep the looked-up lags as `lag_{n}{unit}` columns
+                instead of dropping them. Has no effect with `lags_exist`, whose
+                columns are always kept. Defaults to False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
@@ -227,10 +234,14 @@ class TimeseriesFeatures:
                 `ts` if `drop_ts`).
 
         Raises:
-            ValueError: If any lag is smaller than 1, or shorter than the horizon.
+            ValueError: If any lag is smaller than 1, or shorter than the horizon;
+                if `lags_exist` and a needed lag column is missing; or if
+                `keep_lags` would overwrite an existing lag column.
         """
         pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
-        out = self._combine_lags(lf, pairs, "minus", lambda a, b: a - b)
+        out = self._combine_lags(
+            lf, pairs, "minus", lambda a, b: a - b, lags_exist, keep_lags
+        )
         return _cleanup(out, drop_ts, drop_nulls)
 
     def lag_ratios(
@@ -243,6 +254,8 @@ class TimeseriesFeatures:
         hourly: Sequence[tuple[int, int]] | None = None,
         minutely: Sequence[tuple[int, int]] | None = None,
         secondly: Sequence[tuple[int, int]] | None = None,
+        lags_exist: bool = False,
+        keep_lags: bool = False,
         drop_ts: bool = False,
         drop_nulls: bool = False,
     ) -> pl.LazyFrame:
@@ -268,6 +281,11 @@ class TimeseriesFeatures:
                 `lag_{a}m_over_lag_{b}m`. Defaults to None.
             secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
                 `lag_{a}s_over_lag_{b}s`. Defaults to None.
+            lags_exist (bool): Use the `lag_{n}{unit}` columns already in `lf`, e.g.
+                from `lag`, instead of looking the lags up. Defaults to False.
+            keep_lags (bool): Keep the looked-up lags as `lag_{n}{unit}` columns
+                instead of dropping them. Has no effect with `lags_exist`, whose
+                columns are always kept. Defaults to False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
@@ -276,11 +294,18 @@ class TimeseriesFeatures:
                 if `drop_ts`).
 
         Raises:
-            ValueError: If any lag is smaller than 1, or shorter than the horizon.
+            ValueError: If any lag is smaller than 1, or shorter than the horizon;
+                if `lags_exist` and a needed lag column is missing; or if
+                `keep_lags` would overwrite an existing lag column.
         """
         pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
         out = self._combine_lags(
-            lf, pairs, "over", lambda a, b: pl.when(b != 0).then(a / b)
+            lf,
+            pairs,
+            "over",
+            lambda a, b: pl.when(b != 0).then(a / b),
+            lags_exist,
+            keep_lags,
         )
         return _cleanup(out, drop_ts, drop_nulls)
 
@@ -311,26 +336,49 @@ class TimeseriesFeatures:
         pairs: dict[str, Sequence[tuple[int, int]] | None],
         op: str,
         combine: Callable[[pl.Expr, pl.Expr], pl.Expr],
+        lags_exist: bool,
+        keep_lags: bool,
     ) -> pl.LazyFrame:
         """Add `lag_{a}{unit}_{op}_lag_{b}{unit}` = `combine(lag a, lag b)` for each
-        pair, looking up the lags in temporary columns."""
+        pair. The lags come from existing columns (`lags_exist`), or are looked up
+        into columns that are kept (`keep_lags`) or dropped afterwards."""
         needed = {
             unit: sorted({n for pair in unit_pairs or () for n in pair})
             for unit, unit_pairs in pairs.items()
         }
         self._check_lags(needed)
-        temp = [(n, unit, f"_lag_{n}{unit}") for unit, ns in needed.items() for n in ns]
-        return (
-            _join_lags(lf, temp)
-            .with_columns(
-                combine(pl.col(f"_lag_{a}{unit}"), pl.col(f"_lag_{b}{unit}")).alias(
-                    f"lag_{a}{unit}_{op}_lag_{b}{unit}"
+        lag_names = [f"lag_{n}{unit}" for unit, ns in needed.items() for n in ns]
+        existing = set(lf.collect_schema().names())
+
+        if lags_exist:
+            if missing := [name for name in lag_names if name not in existing]:
+                raise ValueError(
+                    f"lags_exist=True, but lf has no columns {missing}; "
+                    "add them with lag() first"
                 )
-                for unit, unit_pairs in pairs.items()
-                for a, b in unit_pairs or ()
+            prefix, to_drop = "lag_", []
+        else:
+            if keep_lags and (clashes := [n for n in lag_names if n in existing]):
+                raise ValueError(
+                    f"keep_lags=True would overwrite the existing columns {clashes}; "
+                    "pass lags_exist=True to use them instead"
+                )
+            prefix = "lag_" if keep_lags else "_lag_"
+            lookups = [
+                (n, unit, f"{prefix}{n}{unit}")
+                for unit, ns in needed.items()
+                for n in ns
+            ]
+            lf = _join_lags(lf, lookups)
+            to_drop = [] if keep_lags else [name for _, _, name in lookups]
+
+        return lf.with_columns(
+            combine(pl.col(f"{prefix}{a}{unit}"), pl.col(f"{prefix}{b}{unit}")).alias(
+                f"lag_{a}{unit}_{op}_lag_{b}{unit}"
             )
-            .drop(name for _, _, name in temp)
-        )
+            for unit, unit_pairs in pairs.items()
+            for a, b in unit_pairs or ()
+        ).drop(to_drop)
 
     def rolling(
         self,
