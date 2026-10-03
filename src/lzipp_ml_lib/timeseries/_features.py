@@ -2,12 +2,14 @@ import re
 from collections.abc import Callable, Sequence
 from datetime import date, datetime
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Literal, Self, TypeVar
 
 import dataframely as dy
 import holidays
 import numpy as np
 import polars as pl
+
+_T = TypeVar("_T")
 
 
 class TimeseriesSchema(dy.Schema):
@@ -171,17 +173,121 @@ class TimeseriesFeatures:
         Raises:
             ValueError: If any lag is smaller than 1, or shorter than the horizon.
         """
-        lags = {
-            "y": yearly,
-            "mo": monthly,
-            "w": weekly,
-            "d": daily,
-            "h": hourly,
-            "m": minutely,
-            "s": secondly,
-        }
+        lags = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        self._check_lags({unit: list(ns or ()) for unit, ns in lags.items()})
+        out = _join_lags(
+            lf,
+            [
+                (n, unit, f"lag_{n}{unit}")
+                for unit, ns in lags.items()
+                for n in ns or ()
+            ],
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
+
+    def lag_diff(
+        self,
+        lf: dy.LazyFrame[TimeseriesSchema],
+        yearly: Sequence[tuple[int, int]] | None = None,
+        monthly: Sequence[tuple[int, int]] | None = None,
+        weekly: Sequence[tuple[int, int]] | None = None,
+        daily: Sequence[tuple[int, int]] | None = None,
+        hourly: Sequence[tuple[int, int]] | None = None,
+        minutely: Sequence[tuple[int, int]] | None = None,
+        secondly: Sequence[tuple[int, int]] | None = None,
+        drop_ts: bool = False,
+        drop_nulls: bool = False,
+    ) -> pl.LazyFrame:
+        """Add differences between two lags of `val` in the same unit.
+
+        Each pair `(a, b)` adds the value `a` units back minus the value `b` units
+        back. The lags are looked up like in `lag`, so `lf` needs no lag columns.
+
+        Args:
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
+            yearly (Sequence[tuple[int, int]] | None): Yearly lag pairs, e.g.
+                `[(1, 2)]` adds `lag_1y_minus_lag_2y`. Defaults to None.
+            monthly (Sequence[tuple[int, int]] | None): Monthly lag pairs, named
+                `lag_{a}mo_minus_lag_{b}mo`. Defaults to None.
+            weekly (Sequence[tuple[int, int]] | None): Weekly lag pairs, named
+                `lag_{a}w_minus_lag_{b}w`. Defaults to None.
+            daily (Sequence[tuple[int, int]] | None): Daily lag pairs, e.g. `[(1, 7)]`
+                adds `lag_1d_minus_lag_7d`. Defaults to None.
+            hourly (Sequence[tuple[int, int]] | None): Hourly lag pairs, named
+                `lag_{a}h_minus_lag_{b}h`. Defaults to None.
+            minutely (Sequence[tuple[int, int]] | None): Minutely lag pairs, named
+                `lag_{a}m_minus_lag_{b}m`. Defaults to None.
+            secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
+                `lag_{a}s_minus_lag_{b}s`. Defaults to None.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with the requested difference columns appended (without
+                `ts` if `drop_ts`).
+
+        Raises:
+            ValueError: If any lag is smaller than 1, or shorter than the horizon.
+        """
+        pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        out = self._combine_lags(lf, pairs, "minus", lambda a, b: a - b)
+        return _cleanup(out, drop_ts, drop_nulls)
+
+    def lag_ratios(
+        self,
+        lf: dy.LazyFrame[TimeseriesSchema],
+        yearly: Sequence[tuple[int, int]] | None = None,
+        monthly: Sequence[tuple[int, int]] | None = None,
+        weekly: Sequence[tuple[int, int]] | None = None,
+        daily: Sequence[tuple[int, int]] | None = None,
+        hourly: Sequence[tuple[int, int]] | None = None,
+        minutely: Sequence[tuple[int, int]] | None = None,
+        secondly: Sequence[tuple[int, int]] | None = None,
+        drop_ts: bool = False,
+        drop_nulls: bool = False,
+    ) -> pl.LazyFrame:
+        """Add ratios between two lags of `val` in the same unit.
+
+        Each pair `(a, b)` adds the value `a` units back divided by the value `b`
+        units back, null where the latter is 0. The lags are looked up like in
+        `lag`, so `lf` needs no lag columns.
+
+        Args:
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
+            yearly (Sequence[tuple[int, int]] | None): Yearly lag pairs, e.g.
+                `[(1, 2)]` adds `lag_1y_over_lag_2y`. Defaults to None.
+            monthly (Sequence[tuple[int, int]] | None): Monthly lag pairs, named
+                `lag_{a}mo_over_lag_{b}mo`. Defaults to None.
+            weekly (Sequence[tuple[int, int]] | None): Weekly lag pairs, named
+                `lag_{a}w_over_lag_{b}w`. Defaults to None.
+            daily (Sequence[tuple[int, int]] | None): Daily lag pairs, e.g. `[(1, 7)]`
+                adds `lag_1d_over_lag_7d`. Defaults to None.
+            hourly (Sequence[tuple[int, int]] | None): Hourly lag pairs, named
+                `lag_{a}h_over_lag_{b}h`. Defaults to None.
+            minutely (Sequence[tuple[int, int]] | None): Minutely lag pairs, named
+                `lag_{a}m_over_lag_{b}m`. Defaults to None.
+            secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
+                `lag_{a}s_over_lag_{b}s`. Defaults to None.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with the requested ratio columns appended (without `ts`
+                if `drop_ts`).
+
+        Raises:
+            ValueError: If any lag is smaller than 1, or shorter than the horizon.
+        """
+        pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        out = self._combine_lags(
+            lf, pairs, "over", lambda a, b: pl.when(b != 0).then(a / b)
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
+
+    def _check_lags(self, lags: dict[str, list[int]]) -> None:
+        """Raise if a lag isn't positive or is shorter than the horizon."""
         for unit, ns in lags.items():
-            if ns is not None and any(n < 1 for n in ns):
+            if any(n < 1 for n in ns):
                 raise ValueError(
                     f"lags must be positive integers, got {ns} for unit '{unit}'"
                 )
@@ -190,7 +296,7 @@ class TimeseriesFeatures:
             too_short = [
                 f"{n}{unit}"
                 for unit, ns in lags.items()
-                for n in ns or ()
+                for n in ns
                 if n * _UNIT_SECONDS[unit] < horizon
             ]
             if too_short:
@@ -199,74 +305,32 @@ class TimeseriesFeatures:
                     "and won't be known at prediction time"
                 )
 
-        out = lf
-        for unit, ns in lags.items():
-            for n in ns or ():
-                past = lf.select(
-                    pl.col("ts").alias("_lag_ts"), pl.col("val").alias(f"lag_{n}{unit}")
-                )
-                out = (
-                    out.with_columns(_lag_ts=pl.col("ts").dt.offset_by(f"-{n}{unit}"))
-                    .join(past, on="_lag_ts", how="left", maintain_order="left")
-                    .drop("_lag_ts")
-                )
-        return _cleanup(out, drop_ts, drop_nulls)
-
-    def lag_diff(
+    def _combine_lags(
         self,
-        lf: dy.LazyFrame[TimeseriesSchema],
-        pairs: Sequence[tuple[str, str]],
-        drop_ts: bool = False,
-        drop_nulls: bool = False,
+        lf: pl.LazyFrame,
+        pairs: dict[str, Sequence[tuple[int, int]] | None],
+        op: str,
+        combine: Callable[[pl.Expr, pl.Expr], pl.Expr],
     ) -> pl.LazyFrame:
-        """Add differences between existing lag columns.
-
-        Args:
-            lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
-                e.g. the output of `lag`.
-            pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
-                `[("lag_1d", "lag_7d")]` adds `lag_1d_minus_lag_7d`.
-            drop_ts (bool): Drop `ts` from the result. Defaults to False.
-            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
-
-        Returns:
-            pl.LazyFrame: `lf` with `{a}_minus_{b}` columns appended (without `ts` if
-                `drop_ts`).
-        """
-        out = lf.with_columns(
-            (pl.col(a) - pl.col(b)).alias(f"{a}_minus_{b}") for a, b in pairs
+        """Add `lag_{a}{unit}_{op}_lag_{b}{unit}` = `combine(lag a, lag b)` for each
+        pair, looking up the lags in temporary columns."""
+        needed = {
+            unit: sorted({n for pair in unit_pairs or () for n in pair})
+            for unit, unit_pairs in pairs.items()
+        }
+        self._check_lags(needed)
+        temp = [(n, unit, f"_lag_{n}{unit}") for unit, ns in needed.items() for n in ns]
+        return (
+            _join_lags(lf, temp)
+            .with_columns(
+                combine(pl.col(f"_lag_{a}{unit}"), pl.col(f"_lag_{b}{unit}")).alias(
+                    f"lag_{a}{unit}_{op}_lag_{b}{unit}"
+                )
+                for unit, unit_pairs in pairs.items()
+                for a, b in unit_pairs or ()
+            )
+            .drop(name for _, _, name in temp)
         )
-        return _cleanup(out, drop_ts, drop_nulls)
-
-    def lag_ratios(
-        self,
-        lf: dy.LazyFrame[TimeseriesSchema],
-        pairs: Sequence[tuple[str, str]],
-        drop_ts: bool = False,
-        drop_nulls: bool = False,
-    ) -> pl.LazyFrame:
-        """Add ratios between existing lag columns.
-
-        Args:
-            lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
-                e.g. the output of `lag`.
-            pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
-                `[("lag_1d", "lag_7d")]` adds `lag_1d_over_lag_7d`.
-            drop_ts (bool): Drop `ts` from the result. Defaults to False.
-            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
-
-        Returns:
-            pl.LazyFrame: `lf` with `{a}_over_{b}` columns appended, null where `b` is
-                0 (without `ts` if `drop_ts`).
-        """
-        out = lf.with_columns(
-            pl.when(pl.col(b) != 0)
-            .then(pl.col(a) / pl.col(b))
-            .otherwise(None)
-            .alias(f"{a}_over_{b}")
-            for a, b in pairs
-        )
-        return _cleanup(out, drop_ts, drop_nulls)
 
     def rolling(
         self,
@@ -656,6 +720,28 @@ def _approx_seconds(duration: str) -> float:
             f"using units {list(_UNIT_SECONDS)}"
         )
     return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
+
+
+_LAG_UNITS = ("y", "mo", "w", "d", "h", "m", "s")
+
+
+def _by_unit(*per_unit: _T) -> dict[str, _T]:
+    """Map the per-unit arguments (yearly ... secondly) to their unit suffixes."""
+    return dict(zip(_LAG_UNITS, per_unit, strict=True))
+
+
+def _join_lags(lf: pl.LazyFrame, lags: Sequence[tuple[int, str, str]]) -> pl.LazyFrame:
+    """Add, for each `(n, unit, name)`, a column `name` with the value of `val` at
+    `ts - n units`, looked up by timestamp (null if there is none)."""
+    out = lf
+    for n, unit, name in lags:
+        past = lf.select(pl.col("ts").alias("_lag_ts"), pl.col("val").alias(name))
+        out = (
+            out.with_columns(_lag_ts=pl.col("ts").dt.offset_by(f"-{n}{unit}"))
+            .join(past, on="_lag_ts", how="left", maintain_order="left")
+            .drop("_lag_ts")
+        )
+    return out
 
 
 def _maybe_drop_ts(lf: pl.LazyFrame, drop_ts: bool) -> pl.LazyFrame:
