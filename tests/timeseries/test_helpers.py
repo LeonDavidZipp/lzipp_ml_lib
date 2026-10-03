@@ -4,7 +4,7 @@ from datetime import datetime
 import polars as pl
 import polars.testing as plt
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 
 from lzipp_ml_lib.timeseries._features import (
     _approx_seconds,  # type: ignore
@@ -26,47 +26,14 @@ _YEAR = 365.25 * _DAY
 @pytest.mark.parametrize(
     ("duration", "expected"),
     [
-        ("1s", 1),
-        ("1m", 60),
-        ("1h", 3_600),
-        ("1d", _DAY),
-        ("1w", 7 * _DAY),
         ("1mo", _YEAR / 12),
-        ("1q", _YEAR / 4),
-        ("1y", _YEAR),
-        ("0h", 0),
-        ("24h", _DAY),
         ("5mo", 5 * _YEAR / 12),  # "mo" is months, not minutes + "o"
         ("5m", 5 * 60),
         ("1d12h", 1.5 * _DAY),
-        ("2w3d", 17 * _DAY),
-        ("10m30s", 630),
-        ("1y1mo", _YEAR + _YEAR / 12),
     ],
 )
 def test_approx_seconds(duration: str, expected: float) -> None:
     assert _approx_seconds(duration) == pytest.approx(expected)
-
-
-@pytest.mark.parametrize(
-    "duration",
-    [
-        pytest.param("", id="empty"),
-        pytest.param("1x", id="unknown-unit"),
-        pytest.param("1D", id="uppercase-unit"),
-        pytest.param("h", id="missing-number"),
-        pytest.param("1", id="missing-unit"),
-        pytest.param("1.5h", id="fractional"),
-        pytest.param("-1d", id="negative"),
-        pytest.param("1 d", id="inner-space"),
-        pytest.param("1d 2h", id="space-between-parts"),
-        pytest.param("1ms", id="milliseconds"),
-        pytest.param("d1", id="unit-before-number"),
-    ],
-)
-def test_approx_seconds_rejects_invalid(duration: str) -> None:
-    with pytest.raises(ValueError, match="invalid duration"):
-        _approx_seconds(duration)
 
 
 @given(parts=duration_parts())
@@ -77,6 +44,10 @@ def test_approx_seconds_sums_any_valid_duration(parts: list[tuple[int, str]]) ->
     assert _approx_seconds(duration) == pytest.approx(expected)
 
 
+@example(text="")
+@example(text="1ms")
+@example(text="1d 2h")
+@example(text="-1d")
 @given(text=duration_like_text)
 def test_approx_seconds_accepts_exactly_valid_durations(text: str) -> None:
     # A duration is one or more "<digits><unit>" parts with nothing in between.

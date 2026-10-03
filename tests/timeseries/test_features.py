@@ -1,5 +1,5 @@
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -16,6 +16,7 @@ from ._composites import (
     UNITS,
     daily_with_calendar_lag,
     grid_with_gaps,
+    lag_pairs,
     messy_rows,
     shift_back,
 )
@@ -28,7 +29,6 @@ from ._composites import (
 @pytest.mark.parametrize(
     ("unique", "sort", "expected_days", "expected_failures"),
     [
-        pytest.param(True, True, [1, 2, 3], {}, id="dedup-and-sort"),
         # Both rows of the duplicate timestamp fail the unique rule.
         pytest.param(False, True, [2, 3], {"ts|unique": 2}, id="keep-duplicates"),
         # is_sorted is checked on the whole frame, so every row fails it.
@@ -51,24 +51,6 @@ def test_prepare_unique_and_sort(
         result.collect(), _ts_lf(expected_days, expected_days).collect()
     )
     assert failure.counts() == expected_failures
-
-
-@pytest.mark.parametrize(
-    ("bad_val", "rule"),
-    [
-        pytest.param(None, "val|nullability", id="null"),
-        pytest.param(float("nan"), "val|nan", id="nan"),
-        pytest.param(float("inf"), "val|inf", id="inf"),
-        pytest.param(float("-inf"), "val|inf", id="-inf"),
-    ],
-)
-def test_prepare_drops_invalid_values(bad_val: float | None, rule: str) -> None:
-    lf = _ts_lf([1, 2, 3], [1.0, bad_val, 3.0])
-
-    result, failure = TimeseriesFeatures.prepare(lf)
-
-    plt.assert_frame_equal(result.collect(), _ts_lf([1, 3], [1.0, 3.0]).collect())
-    assert failure.counts() == {rule: 1}
 
 
 @pytest.mark.parametrize(
@@ -189,53 +171,6 @@ def test_trend_needs_fit() -> None:
 _START = datetime(2024, 1, 1)
 
 
-@pytest.mark.parametrize(
-    ("unit_kwarg", "suffix", "timestamps"),
-    [
-        pytest.param(
-            "yearly", "y", [datetime(2020 + i, 1, 1) for i in range(6)], id="yearly"
-        ),
-        pytest.param(
-            "monthly", "mo", [datetime(2024, 1 + i, 1) for i in range(6)], id="monthly"
-        ),
-        pytest.param(
-            "weekly", "w", [_START + timedelta(weeks=i) for i in range(6)], id="weekly"
-        ),
-        pytest.param(
-            "daily", "d", [_START + timedelta(days=i) for i in range(6)], id="daily"
-        ),
-        pytest.param(
-            "hourly", "h", [_START + timedelta(hours=i) for i in range(6)], id="hourly"
-        ),
-        pytest.param(
-            "minutely",
-            "m",
-            [_START + timedelta(minutes=i) for i in range(6)],
-            id="minutely",
-        ),
-        pytest.param(
-            "secondly",
-            "s",
-            [_START + timedelta(seconds=i) for i in range(6)],
-            id="secondly",
-        ),
-    ],
-)
-@pytest.mark.parametrize("n", [1, 2])
-def test_lag_each_unit(
-    unit_kwarg: str, suffix: str, timestamps: list[datetime], n: int
-) -> None:
-    # One row per unit step, so lag n is simply the value n rows earlier.
-    vals = [float(i) for i in range(len(timestamps))]
-    lf = _series_lf(timestamps, vals)
-
-    lags: dict[str, Any] = {unit_kwarg: (n,)}
-    out = TimeseriesFeatures().lag(lf, **lags).collect()
-
-    assert out.columns == ["ts", "val", f"lag_{n}{suffix}"]
-    assert out[f"lag_{n}{suffix}"].to_list() == [None] * n + vals[:-n]
-
-
 def test_lag_multiple_lags_and_units() -> None:
     ts = [_START + timedelta(hours=i) for i in range(48)]
     lf = _series_lf(ts, [float(i) for i in range(48)])
@@ -246,17 +181,6 @@ def test_lag_multiple_lags_and_units() -> None:
     assert out.columns == ["ts", "val", "lag_1d", "lag_1h", "lag_2h"]
     last = out.row(-1, named=True)
     assert (last["lag_1d"], last["lag_1h"], last["lag_2h"]) == (23.0, 46.0, 45.0)
-
-
-def test_lag_uses_timestamps_not_row_positions() -> None:
-    # 02:00 is missing: the 03:00 row has no value one hour earlier, so it gets
-    # null instead of the 01:00 value a row-based shift would give.
-    ts = [_START + timedelta(hours=h) for h in (0, 1, 3, 4)]
-    lf = _series_lf(ts, [0.0, 1.0, 3.0, 4.0])
-
-    out = TimeseriesFeatures().lag(lf, hourly=(1,)).collect()
-
-    assert out["lag_1h"].to_list() == [None, 0.0, None, 3.0]
 
 
 def test_lag_monthly_is_calendar_aware() -> None:
@@ -273,16 +197,6 @@ def test_lag_monthly_is_calendar_aware() -> None:
     assert by_day[datetime(2024, 3, 30)] == feb_29
     assert by_day[datetime(2024, 3, 31)] == feb_29
     assert out.height == len(ts)
-
-
-def test_lag_keeps_rows_and_order() -> None:
-    ts = [_START + timedelta(hours=i) for i in range(100)]
-    lf = _series_lf(ts, [float(i) for i in range(100)])
-
-    out = TimeseriesFeatures().lag(lf, hourly=(1, 5), daily=(1,)).collect()
-
-    assert out["ts"].to_list() == ts
-    assert out["val"].to_list() == [float(i) for i in range(100)]
 
 
 def test_lag_without_lags_returns_input() -> None:
@@ -386,18 +300,10 @@ def _counting_lf(hours: int) -> dy.LazyFrame[TimeseriesSchema]:
     return _series_lf(ts, [float(i) for i in range(hours)])
 
 
-def test_lag_diff() -> None:
-    out = TimeseriesFeatures().lag_diff(_counting_lf(5), hourly=[(1, 2), (2, 1)])
-    df = out.collect()
-
-    # Only the requested columns are added; the looked-up lags are temporary.
-    assert df.columns == ["ts", "val", "lag_1h_minus_lag_2h", "lag_2h_minus_lag_1h"]
-    assert df["lag_1h_minus_lag_2h"].to_list() == [None, None, 1.0, 1.0, 1.0]
-    assert df["lag_2h_minus_lag_1h"].to_list() == [None, None, -1.0, -1.0, -1.0]
-
-
 def test_lag_ratios() -> None:
-    out = TimeseriesFeatures().lag_ratios(_counting_lf(5), hourly=[(1, 2)])
+    out: pl.LazyFrame = TimeseriesFeatures().lag_ratios(
+        _counting_lf(5), hourly=[(1, 2)]
+    )
     df = out.collect()
 
     assert df.columns == ["ts", "val", "lag_1h_over_lag_2h"]
@@ -405,21 +311,8 @@ def test_lag_ratios() -> None:
     assert df["lag_1h_over_lag_2h"].to_list() == [None, None, None, 2.0, 1.5]
 
 
-def test_lag_diff_matches_lag_columns() -> None:
-    lf = _counting_lf(24 * 10)
-    fe = TimeseriesFeatures()
-
-    lags = fe.lag(lf, daily=(1, 7)).collect()
-    diff = fe.lag_diff(lf, daily=[(1, 7)]).collect()
-
-    plt.assert_series_equal(
-        diff["lag_1d_minus_lag_7d"],
-        (lags["lag_1d"] - lags["lag_7d"]).alias("lag_1d_minus_lag_7d"),
-    )
-
-
 def test_lag_pairs_multiple_units() -> None:
-    out = TimeseriesFeatures().lag_diff(
+    out: pl.LazyFrame = TimeseriesFeatures().lag_diff(
         _counting_lf(24 * 3), daily=[(1, 2)], hourly=[(1, 3)]
     )
 
@@ -446,7 +339,7 @@ def test_lag_pairs_keep_existing_lag_columns() -> None:
 def test_lag_pairs_without_pairs_returns_input(method: str) -> None:
     lf = _counting_lf(5)
 
-    out = getattr(TimeseriesFeatures(), method)(lf)
+    out: pl.LazyFrame = getattr(TimeseriesFeatures(), method)(lf)
 
     plt.assert_frame_equal(out.collect(), lf.collect())
 
@@ -554,6 +447,57 @@ def test_lag_pairs_lags_exist_still_validates(method: str) -> None:
 
     with pytest.raises(ValueError, match="shorter than the horizon"):
         getattr(fe, method)(lf, hourly=[(1, 2)], lags_exist=True)
+
+
+@pytest.mark.parametrize(
+    ("method", "op", "combine"),
+    [
+        pytest.param("lag_diff", "minus", lambda a, b: a - b, id="diff"),  # type: ignore
+        pytest.param(
+            "lag_ratios",
+            "over",
+            lambda a, b: None if b == 0 else a / b,  # type: ignore
+            id="ratios",
+        ),
+    ],
+)
+@given(
+    case=st.one_of(grid_with_gaps(), daily_with_calendar_lag()),
+    pairs=lag_pairs(),
+    data=st.data(),
+)
+def test_lag_pairs_combine_values_exactly_n_units_earlier(
+    method: str,
+    op: str,
+    combine: Callable[[float, float], float | None],
+    case: tuple[list[datetime], str, int],
+    pairs: list[tuple[int, int]],
+    data: st.DataObject,
+) -> None:
+    ts, unit, _ = case
+    # Plenty of exact zeros, so the ratio's division by 0 occurs.
+    val = st.one_of(st.just(0.0), st.floats(-1e6, 1e6))
+    vals = data.draw(st.lists(val, min_size=len(ts), max_size=len(ts)))
+    kwarg = next(k for k, u in UNITS.items() if u == unit)
+
+    lags: dict[str, Any] = {kwarg: pairs}
+    out: pl.LazyFrame = getattr(TimeseriesFeatures(), method)(
+        _series_lf(ts, vals), **lags
+    )
+    df = out.collect()
+
+    names = [f"lag_{a}{unit}_{op}_lag_{b}{unit}" for a, b in pairs]
+    assert df.columns == ["ts", "val", *names]  # nothing else added or kept
+    by_ts = dict(zip(ts, vals))
+    for (a, b), name in zip(pairs, names):
+        expected: list[float | None] = []
+        for t in ts:
+            va, vb = (
+                by_ts.get(shift_back(t, a, unit)),
+                by_ts.get(shift_back(t, b, unit)),
+            )
+            expected.append(None if va is None or vb is None else combine(va, vb))
+        assert df[name].to_list() == expected, name
 
 
 # ------------------------------------------------------------------------------------ #
