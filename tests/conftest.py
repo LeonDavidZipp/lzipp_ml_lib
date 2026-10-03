@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 from hypothesis import strategies as st
 from numpy.random import Generator
-from sklearn.datasets import make_classification
+from sklearn.datasets import make_classification, make_regression
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR.parent / "data"
@@ -59,6 +59,28 @@ def _classification_lfs(draw: st.DrawFn, n_classes: int) -> pl.LazyFrame:
         flip_y=draw(st.floats(0, 0.1)),
         random_state=draw(st.integers(0, 2**32 - 1)),
     )
+    return pl.LazyFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])]).with_columns(
+        y=pl.Series(y)
+    )
+
+
+@st.composite
+def regression_lfs(draw: st.DrawFn) -> pl.LazyFrame:
+    n_informative = draw(st.integers(1, 15))
+    n_noise = draw(st.integers(0, 5))
+    seed = draw(st.integers(0, 2**32 - 1))
+    x, y = make_regression(  # type: ignore
+        n_samples=draw(st.integers(100, 5000)),
+        n_features=n_informative + n_noise,
+        n_informative=n_informative,
+        random_state=seed,
+    )
+    # Noise relative to the signal's spread, so the linear trend always dominates
+    # (R^2 of the true model stays above ~0.9).
+    noise_ratio = draw(st.floats(0, 0.3))
+    y += np.random.default_rng(seed).normal(0, noise_ratio * y.std(), len(y))
+    # Keep y positive and away from 0, so MAPE stays meaningful.
+    y = y - y.min() + y.std()
     return pl.LazyFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])]).with_columns(
         y=pl.Series(y)
     )
