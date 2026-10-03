@@ -1,0 +1,32 @@
+name: test
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Finish every platform even if one fails, to see all platform-specific breakage.
+      fail-fast: false
+      matrix:
+        # One runner per platform in [tool.pixi.workspace]: linux-64, osx-arm64, win-64.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          pixi-version: v0.81.0
+          locked: true # fail if pixi.lock is out of date with pyproject.toml
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # The test task pins --hypothesis-seed, so CI generates the same inputs every run.
+      - run: pixi run test
