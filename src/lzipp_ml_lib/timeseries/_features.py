@@ -36,7 +36,6 @@ CalendarFeature = Literal[
 CyclicalFeature = Literal[
     "month", "weekday", "hour", "hour_of_week", "day_of_year", "day_of_month"
 ]
-ProfileKey = Literal["hour", "weekday", "month", "hour_of_week", "day_of_year"]
 RollingStat = Literal["mean", "std", "min", "max", "median"]
 TrendUnit = Literal["s", "m", "h", "d"]
 
@@ -61,8 +60,8 @@ class TimeseriesFeatures:
     Features built from past values (`lag`, `rolling`, `ewm`, `gap`, and
     `exogenous` with `known_in_advance=False`) only use data available
     `horizon` before each row, so they can be computed at prediction time.
-    `trend` and `profile` use values learned by `fit`, so train and test get
-    consistent features.
+    `trend` uses values learned by `fit`, so train and test get consistent
+    features.
     """
 
     def __init__(self, horizon: str | None = None):
@@ -81,7 +80,6 @@ class TimeseriesFeatures:
         self.horizon = horizon
         self._min_year: int | None = None
         self._origin: datetime | None = None
-        self._profiles: dict[str, pl.DataFrame] = {}
 
     @staticmethod
     def prepare(
@@ -112,7 +110,7 @@ class TimeseriesFeatures:
         return info.result, info.failure
 
     def fit(self, lf: dy.LazyFrame[TimeseriesSchema]) -> Self:
-        """Learn the training-set values used by `trend` and `profile`.
+        """Learn the training-set values used by `trend`.
 
         Collects `lf`.
 
@@ -125,12 +123,6 @@ class TimeseriesFeatures:
         df = lf.select("ts", "val").collect()
         self._min_year = df.select(_ts.dt.year().min()).item()
         self._origin = df.select(_ts.min()).item()
-        self._profiles = {
-            key: df.group_by(expr.alias("_key")).agg(
-                pl.col("val").mean().alias(f"profile_{key}")
-            )
-            for key, expr in _PROFILE_KEYS.items()
-        }
         return self
 
     def lag(
@@ -521,50 +513,6 @@ class TimeseriesFeatures:
         )
         return _cleanup(out, drop_ts, drop_nulls)
 
-    def profile(
-        self,
-        lf: dy.LazyFrame[TimeseriesSchema],
-        keys: Sequence[ProfileKey] = ("hour_of_week",),
-        drop_ts: bool = False,
-        drop_nulls: bool = False,
-    ) -> pl.LazyFrame:
-        """Add the training-set mean of `val` per seasonal period (target encoding).
-
-        The means come from `fit`. On the training data itself each row's own
-        value is part of its mean, a mild leak; it's usually negligible with
-        many periods' worth of data.
-
-        Args:
-            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
-            keys (Sequence[ProfileKey]): Periods to average over, e.g. `"hour_of_week"`
-                gives the mean for each weekday/hour combination. Defaults to
-                `("hour_of_week",)`.
-            drop_ts (bool): Drop `ts` from the result. Defaults to False.
-            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
-
-        Returns:
-            pl.LazyFrame: `lf` with `profile_{key}` columns appended (without `ts` if
-                `drop_ts`). Periods not seen in training get a null.
-
-        Raises:
-            RuntimeError: If `fit` hasn't been called.
-        """
-        if not self._profiles:
-            raise RuntimeError("call fit() before profile()")
-        out = lf
-        for key in keys:
-            out = (
-                out.with_columns(_key=_PROFILE_KEYS[key])
-                .join(
-                    self._profiles[key].lazy(),
-                    on="_key",
-                    how="left",
-                    maintain_order="left",
-                )
-                .drop("_key")
-            )
-        return _cleanup(out, drop_ts, drop_nulls)
-
     def exogenous(
         self,
         lf: dy.LazyFrame[TimeseriesSchema],
@@ -652,14 +600,6 @@ _CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
     "hour_of_week": (_hour_of_week, 168),
     "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
     "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
-}
-
-_PROFILE_KEYS: dict[str, pl.Expr] = {
-    "hour": _ts.dt.hour(),
-    "weekday": _ts.dt.weekday(),
-    "month": _ts.dt.month(),
-    "hour_of_week": _hour_of_week,
-    "day_of_year": _ts.dt.ordinal_day(),
 }
 
 _ROLLING: dict[str, Callable[[str], pl.Expr]] = {

@@ -115,32 +115,11 @@ def test_fit_learns_min_year_and_origin() -> None:
     assert fe._origin == datetime(2023, 12, 31, 22)  # type: ignore
 
 
-@pytest.mark.parametrize(
-    ("key", "expected"),
-    [
-        pytest.param("hour", {10: 5.0, 22: 3.0}, id="hour"),
-        pytest.param("weekday", {7: 1.0, 1: 5.0}, id="weekday"),
-        pytest.param("month", {12: 1.0, 1: 5.0}, id="month"),
-        # (weekday - 1) * 24 + hour: Sun 22:00 -> 166, Mon 10:00 -> 10, Mon 22:00 -> 22
-        pytest.param("hour_of_week", {166: 1.0, 10: 5.0, 22: 5.0}, id="hour_of_week"),
-        pytest.param("day_of_year", {365: 1.0, 1: 4.0, 8: 7.0}, id="day_of_year"),
-    ],
-)
-def test_fit_learns_profile_means(key: str, expected: dict[int, float]) -> None:
-    fe = TimeseriesFeatures().fit(_fit_lf())
-
-    profile = fe._profiles[key]  # type: ignore
-    assert profile.columns == ["_key", f"profile_{key}"]
-    assert dict(profile.iter_rows()) == pytest.approx(expected)
-
-
 def test_fit_ignores_extra_columns() -> None:
     plain = TimeseriesFeatures().fit(_fit_lf())
     extra = TimeseriesFeatures().fit(_fit_lf(other=[9.0, 9.0, 9.0, 9.0]))
 
     assert (extra._min_year, extra._origin) == (plain._min_year, plain._origin)  # type: ignore
-    for key, profile in plain._profiles.items():  # type: ignore
-        plt.assert_frame_equal(extra._profiles[key], profile, check_row_order=False)  # type: ignore
 
 
 def test_refit_replaces_previous_state() -> None:
@@ -154,18 +133,16 @@ def test_refit_replaces_previous_state() -> None:
 
     assert fe._min_year == 2030  # type: ignore
     assert fe._origin == datetime(2030, 6, 1, 3)  # type: ignore
-    assert dict(fe._profiles["hour"].iter_rows()) == {3: 42.0}  # type: ignore
 
 
-@pytest.mark.parametrize("method", ["trend", "profile"])
-def test_methods_need_fit(method: str) -> None:
+def test_trend_needs_fit() -> None:
     lf = _fit_lf()
 
     with pytest.raises(RuntimeError, match="fit"):
-        getattr(TimeseriesFeatures(), method)(lf)
+        TimeseriesFeatures().trend(lf)
 
     fitted = TimeseriesFeatures().fit(lf)
-    assert getattr(fitted, method)(lf).collect().height == len(_FIT_TS)
+    assert fitted.trend(lf).collect().height == len(_FIT_TS)
 
 
 # ------------------------------------------------------------------------------------ #

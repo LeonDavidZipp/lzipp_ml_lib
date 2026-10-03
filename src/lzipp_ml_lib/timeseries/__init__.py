@@ -1,7 +1,6 @@
 from ._features import (
     CalendarFeature,
     CyclicalFeature,
-    ProfileKey,
     RollingStat,
     TimeseriesFeatures,
     TimeseriesSchema,
@@ -11,7 +10,6 @@ from ._features import (
 __all__ = [
     "CalendarFeature",
     "CyclicalFeature",
-    "ProfileKey",
     "RollingStat",
     "TimeseriesSchema",
     "TimeseriesFeatures",
