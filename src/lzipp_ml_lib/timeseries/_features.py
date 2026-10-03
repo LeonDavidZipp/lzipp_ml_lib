@@ -18,76 +18,6 @@ from ._types import (
     TrendUnit,
 )
 
-_ts = pl.col("ts")
-_hour_of_week = (_ts.dt.weekday() - 1) * 24 + _ts.dt.hour()
-
-_CALENDAR: dict[str, pl.Expr] = {
-    "quarter": _ts.dt.quarter(),
-    "month": _ts.dt.month(),
-    "week": _ts.dt.week(),
-    "day": _ts.dt.day(),
-    "day_of_year": _ts.dt.ordinal_day(),
-    "weekday": _ts.dt.weekday(),
-    "hour": _ts.dt.hour(),
-    "minute": _ts.dt.minute(),
-    "is_weekend": _ts.dt.weekday() >= 6,
-    "is_month_start": _ts.dt.day() == 1,
-    "is_month_end": _ts.dt.day() == _ts.dt.days_in_month(),
-    "days_in_month": _ts.dt.days_in_month(),
-}
-
-# name -> (position in the cycle, cycle length)
-_CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
-    "month": (_ts.dt.month(), 12),
-    "weekday": (_ts.dt.weekday(), 7),
-    "hour": (_ts.dt.hour(), 24),
-    "hour_of_week": (_hour_of_week, 168),
-    "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
-    "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
-}
-
-_PROFILE_KEYS: dict[str, pl.Expr] = {
-    "hour": _ts.dt.hour(),
-    "weekday": _ts.dt.weekday(),
-    "month": _ts.dt.month(),
-    "hour_of_week": _hour_of_week,
-    "day_of_year": _ts.dt.ordinal_day(),
-}
-
-_ROLLING: dict[str, Callable[[str], pl.Expr]] = {
-    "mean": lambda w: pl.col("val").rolling_mean_by("ts", w),
-    "std": lambda w: pl.col("val").rolling_std_by("ts", w),
-    "min": lambda w: pl.col("val").rolling_min_by("ts", w),
-    "max": lambda w: pl.col("val").rolling_max_by("ts", w),
-    "median": lambda w: pl.col("val").rolling_median_by("ts", w),
-}
-
-# Approximate unit lengths, only used to compare durations against the horizon.
-_DAY_SEC = 86400
-_YEAR_DAYS = 365.25
-_UNIT_SECONDS = {
-    "y": _YEAR_DAYS * _DAY_SEC,
-    "q": _YEAR_DAYS / 4 * _DAY_SEC,
-    "mo": _YEAR_DAYS / 12 * _DAY_SEC,
-    "w": 7 * _DAY_SEC,
-    "d": _DAY_SEC,
-    "h": 3600,
-    "m": 60,
-    "s": 1,
-}
-_DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
-
-
-@lru_cache()
-def _approx_seconds(duration: str) -> float:
-    parts = _DURATION.findall(duration)
-    if not parts or "".join(n + u for n, u in parts) != duration:
-        raise ValueError(
-            f"invalid duration '{duration}', expected e.g. '1d', '6h' or '1d12h' "
-            f"using units {list(_UNIT_SECONDS)}"
-        )
-    return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
-
 
 class TimeseriesFeatures:
     """Feature builders for a `ts` / `val` time series.
@@ -671,6 +601,77 @@ class TimeseriesFeatures:
             )
             .drop("_cutoff")
         )
+
+
+_ts = pl.col("ts")
+_hour_of_week = (_ts.dt.weekday() - 1) * 24 + _ts.dt.hour()
+
+_CALENDAR: dict[str, pl.Expr] = {
+    "quarter": _ts.dt.quarter(),
+    "month": _ts.dt.month(),
+    "week": _ts.dt.week(),
+    "day": _ts.dt.day(),
+    "day_of_year": _ts.dt.ordinal_day(),
+    "weekday": _ts.dt.weekday(),
+    "hour": _ts.dt.hour(),
+    "minute": _ts.dt.minute(),
+    "is_weekend": _ts.dt.weekday() >= 6,
+    "is_month_start": _ts.dt.day() == 1,
+    "is_month_end": _ts.dt.day() == _ts.dt.days_in_month(),
+    "days_in_month": _ts.dt.days_in_month(),
+}
+
+# name -> (position in the cycle, cycle length)
+_CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
+    "month": (_ts.dt.month(), 12),
+    "weekday": (_ts.dt.weekday(), 7),
+    "hour": (_ts.dt.hour(), 24),
+    "hour_of_week": (_hour_of_week, 168),
+    "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
+    "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
+}
+
+_PROFILE_KEYS: dict[str, pl.Expr] = {
+    "hour": _ts.dt.hour(),
+    "weekday": _ts.dt.weekday(),
+    "month": _ts.dt.month(),
+    "hour_of_week": _hour_of_week,
+    "day_of_year": _ts.dt.ordinal_day(),
+}
+
+_ROLLING: dict[str, Callable[[str], pl.Expr]] = {
+    "mean": lambda w: pl.col("val").rolling_mean_by("ts", w),
+    "std": lambda w: pl.col("val").rolling_std_by("ts", w),
+    "min": lambda w: pl.col("val").rolling_min_by("ts", w),
+    "max": lambda w: pl.col("val").rolling_max_by("ts", w),
+    "median": lambda w: pl.col("val").rolling_median_by("ts", w),
+}
+
+# Approximate unit lengths, only used to compare durations against the horizon.
+_DAY_SEC = 86400
+_YEAR_DAYS = 365.25
+_UNIT_SECONDS = {
+    "y": _YEAR_DAYS * _DAY_SEC,
+    "q": _YEAR_DAYS / 4 * _DAY_SEC,
+    "mo": _YEAR_DAYS / 12 * _DAY_SEC,
+    "w": 7 * _DAY_SEC,
+    "d": _DAY_SEC,
+    "h": 3600,
+    "m": 60,
+    "s": 1,
+}
+_DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
+
+
+@lru_cache()
+def _approx_seconds(duration: str) -> float:
+    parts = _DURATION.findall(duration)
+    if not parts or "".join(n + u for n, u in parts) != duration:
+        raise ValueError(
+            f"invalid duration '{duration}', expected e.g. '1d', '6h' or '1d12h' "
+            f"using units {list(_UNIT_SECONDS)}"
+        )
+    return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
 
 
 def _maybe_drop_ts(lf: pl.LazyFrame, drop_ts: bool) -> pl.LazyFrame:
