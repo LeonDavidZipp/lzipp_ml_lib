@@ -626,7 +626,8 @@ class TimeseriesFeatures:
 
 
 _ts = pl.col("ts")
-_hour_of_week = (_ts.dt.weekday() - 1) * 24 + _ts.dt.hour()
+# weekday() and hour() are Int8, which overflows past 127 (Saturday 08:00).
+_hour_of_week = (_ts.dt.weekday().cast(pl.Int16) - 1) * 24 + _ts.dt.hour()
 
 _CALENDAR: dict[str, pl.Expr] = {
     "quarter": _ts.dt.quarter(),
