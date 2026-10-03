@@ -37,33 +37,6 @@ ClassificationEvalMetric = Literal[
     "accuracy", "precision", "recall", "f1_score", "roc_auc", "log_loss"
 ]
 
-_METRICS = {
-    "mape": mean_absolute_percentage_error,
-    "mae": mean_absolute_error,
-    "rmse": root_mean_squared_error,
-    "mse": mean_squared_error,
-    "r2": r2_score,
-    "accuracy": accuracy_score,
-    "precision": precision_score,
-    "recall": recall_score,
-    "f1_score": f1_score,
-    "roc_auc": roc_auc_score,
-    "log_loss": log_loss,
-}
-_DIRECTIONS = {
-    "mape": StudyDirection.MINIMIZE,
-    "mae": StudyDirection.MINIMIZE,
-    "rmse": StudyDirection.MINIMIZE,
-    "mse": StudyDirection.MINIMIZE,
-    "r2": StudyDirection.MAXIMIZE,
-    "accuracy": StudyDirection.MAXIMIZE,
-    "precision": StudyDirection.MAXIMIZE,
-    "recall": StudyDirection.MAXIMIZE,
-    "f1_score": StudyDirection.MAXIMIZE,
-    "roc_auc": StudyDirection.MAXIMIZE,
-    "log_loss": StudyDirection.MINIMIZE,
-}
-
 
 @dataclass
 class RegressionMetrics:
@@ -132,160 +105,6 @@ class RegressionFitResult(Generic[M]):
 class ClassificationFitResult(Generic[M]):
     model: M
     metrics: ClassificationMetrics
-
-
-def _join_final_fit_data(
-    final_fit_data: FinalFitData,
-    x_train: pl.DataFrame,
-    y_train: pl.DataFrame,
-    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    x_test: pl.DataFrame | None = None,
-    y_test: pl.DataFrame | None = None,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Stack the data the final model is fit on, in train -> val -> test order.
-
-    Raises:
-        ValueError: If `final_fit_data` includes data that wasn't passed.
-    """
-    parts = [(x_train, y_train)]
-    if final_fit_data in ("train_val", "train_val_test"):
-        if not eval_set:
-            raise ValueError(f"final_fit_data='{final_fit_data}' needs an eval_set")
-        parts.extend(eval_set)
-    if final_fit_data == "train_val_test":
-        if x_test is None or y_test is None:
-            raise ValueError("final_fit_data='train_val_test' needs x_test and y_test")
-        parts.append((x_test, y_test))
-    return pl.concat(x for x, _ in parts), pl.concat(y for _, y in parts)
-
-
-def _tune_and_fit_xgb(
-    model_type: type[T],
-    x_train: pl.DataFrame,
-    y_train: pl.DataFrame,
-    x_test: pl.DataFrame,
-    y_test: pl.DataFrame,
-    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
-    early_stopping_rounds: int | None,
-    n_trials: int,
-    final_fit_data: FinalFitData,
-    score: Callable[[T], float],
-    direction: StudyDirection,
-) -> T:
-    """Tune `model_type` with `score` (a fitted model -> its test score), then fit
-    the final model with the best hyperparameters on `final_fit_data`."""
-    if early_stopping_rounds is not None and not eval_set:
-        warnings.warn(
-            f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
-            "eval_set was passed; trials train all n_estimators rounds",
-            stacklevel=4,
-        )
-
-    def objective(trial: rustuna.Trial) -> float:
-        params = search_space.suggest(trial)
-        if (
-            early_stopping_rounds is not None
-            and eval_set
-            and "early_stopping_rounds" not in search_space
-        ):
-            params["early_stopping_rounds"] = early_stopping_rounds
-        model = model_type(**params)
-        model.fit(x_train, y_train, eval_set=eval_set)
-        if params.get("early_stopping_rounds") is not None:
-            trial.set_user_attr("n_estimators", str(model.best_iteration + 1))
-        return score(model)
-
-    study = rustuna.create_study(direction=direction)
-    study.optimize(objective, n_trials=n_trials)
-    x_final, y_final = _join_final_fit_data(
-        final_fit_data, x_train, y_train, eval_set, x_test, y_test
-    )
-    # The final fit has no eval_set to stop on (it may be part of the final data),
-    # so train exactly as many rounds as the best trial used instead.
-    best_params = dict(study.best_trial.params)
-    best_params.pop("early_stopping_rounds", None)
-    if "n_estimators" in study.best_trial.user_attrs:
-        best_params["n_estimators"] = int(study.best_trial.user_attrs["n_estimators"])
-    best_model = model_type(**best_params)
-    best_model.fit(x_final, y_final)
-    return best_model
-
-
-def _fit_any_xgb_regressor(
-    model_type: type[R],
-    x_train: pl.DataFrame,
-    y_train: pl.DataFrame,
-    x_test: pl.DataFrame,
-    y_test: pl.DataFrame,
-    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
-    early_stopping_rounds: int | None,
-    n_trials: int,
-    final_fit_data: FinalFitData,
-    metric: RegressionEvalMetric,
-) -> RegressionFitResult[R]:
-    def score(model: R) -> float:
-        return float(_METRICS[metric](y_test, model.predict(x_test)))
-
-    best_model = _tune_and_fit_xgb(
-        model_type=model_type,
-        x_train=x_train,
-        y_train=y_train,
-        x_test=x_test,
-        y_test=y_test,
-        eval_set=eval_set,
-        search_space=search_space,
-        early_stopping_rounds=early_stopping_rounds,
-        n_trials=n_trials,
-        final_fit_data=final_fit_data,
-        score=score,
-        direction=_DIRECTIONS[metric],
-    )
-    return RegressionFitResult(
-        best_model, RegressionMetrics.calculate(y_test, best_model.predict(x_test))
-    )
-
-
-def _classification_metrics(
-    model: xgb.XGBClassifier, x: pl.DataFrame, y: pl.DataFrame
-) -> ClassificationMetrics:
-    return ClassificationMetrics.calculate(y, model.predict(x), model.predict_proba(x))
-
-
-def _fit_any_xgb_classifier(
-    model_type: type[C],
-    x_train: pl.DataFrame,
-    y_train: pl.DataFrame,
-    x_test: pl.DataFrame,
-    y_test: pl.DataFrame,
-    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
-    early_stopping_rounds: int | None,
-    n_trials: int,
-    final_fit_data: FinalFitData,
-    metric: ClassificationEvalMetric,
-) -> ClassificationFitResult[C]:
-    def score(model: C) -> float:
-        return getattr(_classification_metrics(model, x_test, y_test), metric)
-
-    best_model = _tune_and_fit_xgb(
-        model_type=model_type,
-        x_train=x_train,
-        y_train=y_train,
-        x_test=x_test,
-        y_test=y_test,
-        eval_set=eval_set,
-        search_space=search_space,
-        early_stopping_rounds=early_stopping_rounds,
-        n_trials=n_trials,
-        final_fit_data=final_fit_data,
-        score=score,
-        direction=_DIRECTIONS[metric],
-    )
-    return ClassificationFitResult(
-        best_model, _classification_metrics(best_model, x_test, y_test)
-    )
 
 
 def fit_xgb_regressor(
@@ -697,3 +516,185 @@ def fit_prophet(
     # rustuna.create_study().optimize(objective, n_trials=50)
     # return HyperparameterFitResult(model=Prophet(), metrics=Metrics(mape=0.0))
     ...
+
+
+_METRICS = {
+    "mape": mean_absolute_percentage_error,
+    "mae": mean_absolute_error,
+    "rmse": root_mean_squared_error,
+    "mse": mean_squared_error,
+    "r2": r2_score,
+    "accuracy": accuracy_score,
+    "precision": precision_score,
+    "recall": recall_score,
+    "f1_score": f1_score,
+    "roc_auc": roc_auc_score,
+    "log_loss": log_loss,
+}
+_DIRECTIONS = {
+    "mape": StudyDirection.MINIMIZE,
+    "mae": StudyDirection.MINIMIZE,
+    "rmse": StudyDirection.MINIMIZE,
+    "mse": StudyDirection.MINIMIZE,
+    "r2": StudyDirection.MAXIMIZE,
+    "accuracy": StudyDirection.MAXIMIZE,
+    "precision": StudyDirection.MAXIMIZE,
+    "recall": StudyDirection.MAXIMIZE,
+    "f1_score": StudyDirection.MAXIMIZE,
+    "roc_auc": StudyDirection.MAXIMIZE,
+    "log_loss": StudyDirection.MINIMIZE,
+}
+
+
+def _fit_any_xgb_classifier(
+    model_type: type[C],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int | None,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    metric: ClassificationEvalMetric,
+) -> ClassificationFitResult[C]:
+    def score(model: C) -> float:
+        return getattr(_classification_metrics(model, x_test, y_test), metric)
+
+    best_model = _tune_and_fit_xgb(
+        model_type=model_type,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        score=score,
+        direction=_DIRECTIONS[metric],
+    )
+    return ClassificationFitResult(
+        best_model, _classification_metrics(best_model, x_test, y_test)
+    )
+
+
+def _tune_and_fit_xgb(
+    model_type: type[T],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int | None,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    score: Callable[[T], float],
+    direction: StudyDirection,
+) -> T:
+    """Tune `model_type` with `score` (a fitted model -> its test score), then fit
+    the final model with the best hyperparameters on `final_fit_data`."""
+    if early_stopping_rounds is not None and not eval_set:
+        warnings.warn(
+            f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
+            "eval_set was passed; trials train all n_estimators rounds",
+            stacklevel=4,
+        )
+
+    def objective(trial: rustuna.Trial) -> float:
+        params = search_space.suggest(trial)
+        if (
+            early_stopping_rounds is not None
+            and eval_set
+            and "early_stopping_rounds" not in search_space
+        ):
+            params["early_stopping_rounds"] = early_stopping_rounds
+        model = model_type(**params)
+        model.fit(x_train, y_train, eval_set=eval_set)
+        if params.get("early_stopping_rounds") is not None:
+            trial.set_user_attr("n_estimators", str(model.best_iteration + 1))
+        return score(model)
+
+    study = rustuna.create_study(direction=direction)
+    study.optimize(objective, n_trials=n_trials)
+    x_final, y_final = _join_final_fit_data(
+        final_fit_data, x_train, y_train, eval_set, x_test, y_test
+    )
+    # The final fit has no eval_set to stop on (it may be part of the final data),
+    # so train exactly as many rounds as the best trial used instead.
+    best_params = dict(study.best_trial.params)
+    best_params.pop("early_stopping_rounds", None)
+    if "n_estimators" in study.best_trial.user_attrs:
+        best_params["n_estimators"] = int(study.best_trial.user_attrs["n_estimators"])
+    best_model = model_type(**best_params)
+    best_model.fit(x_final, y_final)
+    return best_model
+
+
+def _fit_any_xgb_regressor(
+    model_type: type[R],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int | None,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    metric: RegressionEvalMetric,
+) -> RegressionFitResult[R]:
+    def score(model: R) -> float:
+        return float(_METRICS[metric](y_test, model.predict(x_test)))
+
+    best_model = _tune_and_fit_xgb(
+        model_type=model_type,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        score=score,
+        direction=_DIRECTIONS[metric],
+    )
+    return RegressionFitResult(
+        best_model, RegressionMetrics.calculate(y_test, best_model.predict(x_test))
+    )
+
+
+def _join_final_fit_data(
+    final_fit_data: FinalFitData,
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
+    x_test: pl.DataFrame | None = None,
+    y_test: pl.DataFrame | None = None,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Stack the data the final model is fit on, in train -> val -> test order.
+
+    Raises:
+        ValueError: If `final_fit_data` includes data that wasn't passed.
+    """
+    parts = [(x_train, y_train)]
+    if final_fit_data in ("train_val", "train_val_test"):
+        if not eval_set:
+            raise ValueError(f"final_fit_data='{final_fit_data}' needs an eval_set")
+        parts.extend(eval_set)
+    if final_fit_data == "train_val_test":
+        if x_test is None or y_test is None:
+            raise ValueError("final_fit_data='train_val_test' needs x_test and y_test")
+        parts.append((x_test, y_test))
+    return pl.concat(x for x, _ in parts), pl.concat(y for _, y in parts)
+
+
+def _classification_metrics(
+    model: xgb.XGBClassifier, x: pl.DataFrame, y: pl.DataFrame
+) -> ClassificationMetrics:
+    return ClassificationMetrics.calculate(y, model.predict(x), model.predict_proba(x))
