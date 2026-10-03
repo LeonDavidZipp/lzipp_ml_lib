@@ -1,9 +1,9 @@
-from ._features import TimeseriesFeatures
-from ._types import (
+from ._features import (
     CalendarFeature,
     CyclicalFeature,
     ProfileKey,
     RollingStat,
+    TimeseriesFeatures,
     TimeseriesSchema,
     TrendUnit,
 )
