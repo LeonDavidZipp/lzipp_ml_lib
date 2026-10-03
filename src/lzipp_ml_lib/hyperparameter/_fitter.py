@@ -1,9 +1,10 @@
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Generic, Literal, Self, TypeVar
+from typing import Any, Generic, Literal, Self, TypeVar
 
 import dataframely as dy
+import numpy as np
 import polars as pl
 import rustuna
 import xgboost as xgb
@@ -27,7 +28,9 @@ from sklearn.metrics import (
 from ._space import HyperparameterSpace
 
 M = TypeVar("M", bound=xgb.XGBModel | Prophet)
+T = TypeVar("T", bound=xgb.XGBModel)
 R = TypeVar("R", bound=xgb.XGBRegressor)
+C = TypeVar("C", bound=xgb.XGBClassifier)
 RegressionEvalMetric = Literal["mape", "mae", "rmse", "mse", "r2"]
 FinalFitData = Literal["train", "train_val", "train_val_test"]
 ClassificationEvalMetric = Literal[
@@ -90,6 +93,34 @@ class ClassificationMetrics:
     roc_auc: float
     log_loss: float
 
+    @classmethod
+    def calculate(
+        cls, y_true: ArrayLike, y_pred: ArrayLike, y_proba: ArrayLike
+    ) -> Self:
+        y_true = np.ravel(np.asarray(y_true))
+        y_proba = np.asarray(y_proba)
+        labels = np.arange(int(y_proba.shape[1]))
+        binary = len(labels) == 2
+        prf_kwargs: dict[str, Any] = {
+            "labels": labels,
+            "average": "binary" if binary else "macro",
+            # scores classes that are never predicted as 0 instead of warning
+            "zero_division": 0,
+        }
+        roc_auc = (
+            roc_auc_score(y_true, y_proba[:, 1])
+            if binary
+            else roc_auc_score(y_true, y_proba, multi_class="ovr", labels=labels)
+        )
+        return cls(
+            accuracy=float(accuracy_score(y_true, y_pred)),
+            precision=float(precision_score(y_true, y_pred, **prf_kwargs)),
+            recall=float(recall_score(y_true, y_pred, **prf_kwargs)),
+            f1_score=float(f1_score(y_true, y_pred, **prf_kwargs)),
+            roc_auc=float(roc_auc),
+            log_loss=float(log_loss(y_true, y_proba, labels=labels)),
+        )
+
 
 @dataclass
 class RegressionFitResult(Generic[M]):
@@ -128,8 +159,8 @@ def _join_final_fit_data(
     return pl.concat(x for x, _ in parts), pl.concat(y for _, y in parts)
 
 
-def _fit_any_xgb_regressor(
-    model_type: type[R],
+def _tune_and_fit_xgb(
+    model_type: type[T],
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
     x_test: pl.DataFrame,
@@ -139,13 +170,16 @@ def _fit_any_xgb_regressor(
     early_stopping_rounds: int | None,
     n_trials: int,
     final_fit_data: FinalFitData,
-    metric: RegressionEvalMetric,
-) -> RegressionFitResult[R]:
+    score: Callable[[T], float],
+    direction: StudyDirection,
+) -> T:
+    """Tune `model_type` with `score` (a fitted model -> its test score), then fit
+    the final model with the best hyperparameters on `final_fit_data`."""
     if early_stopping_rounds is not None and not eval_set:
         warnings.warn(
             f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
             "eval_set was passed; trials train all n_estimators rounds",
-            stacklevel=3,
+            stacklevel=4,
         )
 
     def objective(trial: rustuna.Trial) -> float:
@@ -160,10 +194,9 @@ def _fit_any_xgb_regressor(
         model.fit(x_train, y_train, eval_set=eval_set)
         if params.get("early_stopping_rounds") is not None:
             trial.set_user_attr("n_estimators", str(model.best_iteration + 1))
-        y_pred = model.predict(x_test)
-        return float(_METRICS[metric](y_test, y_pred))
+        return score(model)
 
-    study = rustuna.create_study(direction=_DIRECTIONS[metric])
+    study = rustuna.create_study(direction=direction)
     study.optimize(objective, n_trials=n_trials)
     x_final, y_final = _join_final_fit_data(
         final_fit_data, x_train, y_train, eval_set, x_test, y_test
@@ -176,9 +209,82 @@ def _fit_any_xgb_regressor(
         best_params["n_estimators"] = int(study.best_trial.user_attrs["n_estimators"])
     best_model = model_type(**best_params)
     best_model.fit(x_final, y_final)
-    y_pred_final = best_model.predict(x_test)
+    return best_model
+
+
+def _fit_any_xgb_regressor(
+    model_type: type[R],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int | None,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    metric: RegressionEvalMetric,
+) -> RegressionFitResult[R]:
+    def score(model: R) -> float:
+        return float(_METRICS[metric](y_test, model.predict(x_test)))
+
+    best_model = _tune_and_fit_xgb(
+        model_type=model_type,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        score=score,
+        direction=_DIRECTIONS[metric],
+    )
     return RegressionFitResult(
-        best_model, RegressionMetrics.calculate(y_test, y_pred_final)
+        best_model, RegressionMetrics.calculate(y_test, best_model.predict(x_test))
+    )
+
+
+def _classification_metrics(
+    model: xgb.XGBClassifier, x: pl.DataFrame, y: pl.DataFrame
+) -> ClassificationMetrics:
+    return ClassificationMetrics.calculate(y, model.predict(x), model.predict_proba(x))
+
+
+def _fit_any_xgb_classifier(
+    model_type: type[C],
+    x_train: pl.DataFrame,
+    y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
+    eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
+    search_space: HyperparameterSpace,
+    early_stopping_rounds: int | None,
+    n_trials: int,
+    final_fit_data: FinalFitData,
+    metric: ClassificationEvalMetric,
+) -> ClassificationFitResult[C]:
+    def score(model: C) -> float:
+        return getattr(_classification_metrics(model, x_test, y_test), metric)
+
+    best_model = _tune_and_fit_xgb(
+        model_type=model_type,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        score=score,
+        direction=_DIRECTIONS[metric],
+    )
+    return ClassificationFitResult(
+        best_model, _classification_metrics(best_model, x_test, y_test)
     )
 
 
@@ -353,29 +459,57 @@ def fit_xgb_rf_regressor(
 def fit_xgb_classifier(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
+    early_stopping_rounds: int = 50,
+    n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
+    metric: ClassificationEvalMetric = "log_loss",
 ) -> ClassificationFitResult[xgb.XGBClassifier]:
     """
-    Fits an XGBoost classifier.
+    Tunes and fits an XGBoost classifier.
+
+    Runs `n_trials` hyperparameter trials, each fit on the training data and scored
+    on the test data with `metric`, then fits the final model with the best
+    hyperparameters on the data selected by `final_fit_data`.
 
     Args:
         x_train (pl.DataFrame): Training features.
-        y_train (pl.DataFrame): Training target.
+        y_train (pl.DataFrame): Training class labels `0..k-1`.
+        x_test (pl.DataFrame): Test features. Each trial is scored on them, and so
+            are the returned metrics.
+        y_test (pl.DataFrame): Test class labels.
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
-            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+            `(x, y)` pairs XGBoost monitors during each trial's fit; the last one
+            is used for early stopping. Defaults to None.
         search_space (HyperparameterSpace | None): The hyperparameter space used
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
+        early_stopping_rounds (int): Stop a trial's boosting after this many rounds
+            without improvement on the last `eval_set` pair; the final model is
+            then trained for as many rounds as the best trial used. Ignored
+            without an `eval_set` or if `search_space` tunes
+            `early_stopping_rounds` itself. Defaults to 50.
+        n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
             (plus all `eval_set` data) or `"train_val_test"` (plus the test data;
             the returned test metrics are then in-sample). Defaults to `"train"`.
+        metric (ClassificationEvalMetric): Metric the trials are optimized for, one
+            of `"accuracy"`, `"precision"`, `"recall"`, `"f1_score"`, `"roc_auc"`
+            (maximized) or `"log_loss"` (minimized). See
+            `ClassificationMetrics.calculate` for the multiclass averaging.
+            Defaults to `"log_loss"`.
 
     Returns:
-        HyperparameterFitResult[xgb.XGBClassifier]: The fitted model and associated
-            metrics.
+        ClassificationFitResult[xgb.XGBClassifier]: The final model and its metrics on
+            the test data.
+
+    Raises:
+        ValueError: If `final_fit_data` includes `eval_set` data but none was
+            passed.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -398,50 +532,70 @@ def fit_xgb_classifier(
         }
         ```
     """
-    # space = search_space or HyperparameterSpace.default_space_from_model(
-    #     self._model_type
-    # )
-
-    # def objective(trial: rustuna.Trial) -> float:
-    #     params = {key: val.suggest(trial) for key, val in space.items()}
-    #     model = self._model_type(**params)  # type: ignore
-    #     model.fit(x_train, y_train, eval_set=eval_set, verbose=False)
-
-    #     # Extract and return the validation metric
-    #     return calculate_rmse(model, validation_sets[0][0], validation_sets[0][1])
-
-    # rustuna.create_study().optimize(objective, n_trials=50)
-    # # Finalization logic here...
-    # return HyperparameterFitResult(...)
-    ...
+    search_space = search_space or HyperparameterSpace.default_xgb_classifier()
+    return _fit_any_xgb_classifier(
+        model_type=xgb.XGBClassifier,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=early_stopping_rounds,
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        metric=metric,
+    )
 
 
 def fit_xgb_rf_classifier(
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
     search_space: HyperparameterSpace | None = None,
+    n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
+    metric: ClassificationEvalMetric = "log_loss",
 ) -> ClassificationFitResult[xgb.XGBRFClassifier]:
     """
-    Fits an XGBoost random forest classifier.
+    Tunes and fits an XGBoost random forest classifier.
+
+    Runs `n_trials` hyperparameter trials, each fit on the training data and scored
+    on the test data with `metric`, then fits the final model with the best
+    hyperparameters on the data selected by `final_fit_data`.
 
     Args:
         x_train (pl.DataFrame): Training features.
-        y_train (pl.DataFrame): Training target.
+        y_train (pl.DataFrame): Training class labels `0..k-1`.
+        x_test (pl.DataFrame): Test features. Each trial is scored on them, and so
+            are the returned metrics.
+        y_test (pl.DataFrame): Test class labels.
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
-            `(x, y)` pairs used to score each hyperparameter trial. Defaults to None.
+            `(x, y)` pairs XGBoost monitors during each trial's fit. Defaults to
+            None.
         search_space (HyperparameterSpace | None): The hyperparameter space used
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
+        n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
             (plus all `eval_set` data) or `"train_val_test"` (plus the test data;
             the returned test metrics are then in-sample). Defaults to `"train"`.
+        metric (ClassificationEvalMetric): Metric the trials are optimized for, one
+            of `"accuracy"`, `"precision"`, `"recall"`, `"f1_score"`, `"roc_auc"`
+            (maximized) or `"log_loss"` (minimized). See
+            `ClassificationMetrics.calculate` for the multiclass averaging.
+            Defaults to `"log_loss"`.
 
     Returns:
-        HyperparameterFitResult[xgb.XGBRFClassifier]: The fitted model and associated
-            metrics.
+        ClassificationFitResult[xgb.XGBRFClassifier]: The final model and its metrics on
+            the test data.
+
+    Raises:
+        ValueError: If `final_fit_data` includes `eval_set` data but none was
+            passed.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -458,7 +612,20 @@ def fit_xgb_rf_classifier(
         }
         ```
     """
-    ...
+    search_space = search_space or HyperparameterSpace.default_xgb_rf_classifier()
+    return _fit_any_xgb_classifier(
+        model_type=xgb.XGBRFClassifier,
+        x_train=x_train,
+        y_train=y_train,
+        x_test=x_test,
+        y_test=y_test,
+        eval_set=eval_set,
+        search_space=search_space,
+        early_stopping_rounds=None,  # unsupported by XGBRFClassifier
+        n_trials=n_trials,
+        final_fit_data=final_fit_data,
+        metric=metric,
+    )
 
 
 class ProphetSchema(dy.Schema):
