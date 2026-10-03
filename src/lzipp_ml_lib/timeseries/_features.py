@@ -309,77 +309,6 @@ class TimeseriesFeatures:
         )
         return _cleanup(out, drop_ts, drop_nulls)
 
-    def _check_lags(self, lags: dict[str, list[int]]) -> None:
-        """Raise if a lag isn't positive or is shorter than the horizon."""
-        for unit, ns in lags.items():
-            if any(n < 1 for n in ns):
-                raise ValueError(
-                    f"lags must be positive integers, got {ns} for unit '{unit}'"
-                )
-        if self.horizon is not None:
-            horizon = _approx_seconds(self.horizon)
-            too_short = [
-                f"{n}{unit}"
-                for unit, ns in lags.items()
-                for n in ns
-                if n * _UNIT_SECONDS[unit] < horizon
-            ]
-            if too_short:
-                raise ValueError(
-                    f"lags {too_short} are shorter than the horizon '{self.horizon}' "
-                    "and won't be known at prediction time"
-                )
-
-    def _combine_lags(
-        self,
-        lf: pl.LazyFrame,
-        pairs: dict[str, Sequence[tuple[int, int]] | None],
-        op: str,
-        combine: Callable[[pl.Expr, pl.Expr], pl.Expr],
-        lags_exist: bool,
-        keep_lags: bool,
-    ) -> pl.LazyFrame:
-        """Add `lag_{a}{unit}_{op}_lag_{b}{unit}` = `combine(lag a, lag b)` for each
-        pair. The lags come from existing columns (`lags_exist`), or are looked up
-        into columns that are kept (`keep_lags`) or dropped afterwards."""
-        needed = {
-            unit: sorted({n for pair in unit_pairs or () for n in pair})
-            for unit, unit_pairs in pairs.items()
-        }
-        self._check_lags(needed)
-        lag_names = [f"lag_{n}{unit}" for unit, ns in needed.items() for n in ns]
-        existing = set(lf.collect_schema().names())
-
-        if lags_exist:
-            if missing := [name for name in lag_names if name not in existing]:
-                raise ValueError(
-                    f"lags_exist=True, but lf has no columns {missing}; "
-                    "add them with lag() first"
-                )
-            prefix, to_drop = "lag_", []
-        else:
-            if keep_lags and (clashes := [n for n in lag_names if n in existing]):
-                raise ValueError(
-                    f"keep_lags=True would overwrite the existing columns {clashes}; "
-                    "pass lags_exist=True to use them instead"
-                )
-            prefix = "lag_" if keep_lags else "_lag_"
-            lookups = [
-                (n, unit, f"{prefix}{n}{unit}")
-                for unit, ns in needed.items()
-                for n in ns
-            ]
-            lf = _join_lags(lf, lookups)
-            to_drop = [] if keep_lags else [name for _, _, name in lookups]
-
-        return lf.with_columns(
-            combine(pl.col(f"{prefix}{a}{unit}"), pl.col(f"{prefix}{b}{unit}")).alias(
-                f"lag_{a}{unit}_{op}_lag_{b}{unit}"
-            )
-            for unit, unit_pairs in pairs.items()
-            for a, b in unit_pairs or ()
-        ).drop(to_drop)
-
     def rolling(
         self,
         lf: dy.LazyFrame[TimeseriesSchema],
@@ -704,6 +633,77 @@ class TimeseriesFeatures:
             )
             .drop("_cutoff")
         )
+
+    def _check_lags(self, lags: dict[str, list[int]]) -> None:
+        """Raise if a lag isn't positive or is shorter than the horizon."""
+        for unit, ns in lags.items():
+            if any(n < 1 for n in ns):
+                raise ValueError(
+                    f"lags must be positive integers, got {ns} for unit '{unit}'"
+                )
+        if self.horizon is not None:
+            horizon = _approx_seconds(self.horizon)
+            too_short = [
+                f"{n}{unit}"
+                for unit, ns in lags.items()
+                for n in ns
+                if n * _UNIT_SECONDS[unit] < horizon
+            ]
+            if too_short:
+                raise ValueError(
+                    f"lags {too_short} are shorter than the horizon '{self.horizon}' "
+                    "and won't be known at prediction time"
+                )
+
+    def _combine_lags(
+        self,
+        lf: pl.LazyFrame,
+        pairs: dict[str, Sequence[tuple[int, int]] | None],
+        op: str,
+        combine: Callable[[pl.Expr, pl.Expr], pl.Expr],
+        lags_exist: bool,
+        keep_lags: bool,
+    ) -> pl.LazyFrame:
+        """Add `lag_{a}{unit}_{op}_lag_{b}{unit}` = `combine(lag a, lag b)` for each
+        pair. The lags come from existing columns (`lags_exist`), or are looked up
+        into columns that are kept (`keep_lags`) or dropped afterwards."""
+        needed = {
+            unit: sorted({n for pair in unit_pairs or () for n in pair})
+            for unit, unit_pairs in pairs.items()
+        }
+        self._check_lags(needed)
+        lag_names = [f"lag_{n}{unit}" for unit, ns in needed.items() for n in ns]
+        existing = set(lf.collect_schema().names())
+
+        if lags_exist:
+            if missing := [name for name in lag_names if name not in existing]:
+                raise ValueError(
+                    f"lags_exist=True, but lf has no columns {missing}; "
+                    "add them with lag() first"
+                )
+            prefix, to_drop = "lag_", []
+        else:
+            if keep_lags and (clashes := [n for n in lag_names if n in existing]):
+                raise ValueError(
+                    f"keep_lags=True would overwrite the existing columns {clashes}; "
+                    "pass lags_exist=True to use them instead"
+                )
+            prefix = "lag_" if keep_lags else "_lag_"
+            lookups = [
+                (n, unit, f"{prefix}{n}{unit}")
+                for unit, ns in needed.items()
+                for n in ns
+            ]
+            lf = _join_lags(lf, lookups)
+            to_drop = [] if keep_lags else [name for _, _, name in lookups]
+
+        return lf.with_columns(
+            combine(pl.col(f"{prefix}{a}{unit}"), pl.col(f"{prefix}{b}{unit}")).alias(
+                f"lag_{a}{unit}_{op}_lag_{b}{unit}"
+            )
+            for unit, unit_pairs in pairs.items()
+            for a, b in unit_pairs or ()
+        ).drop(to_drop)
 
 
 _ts = pl.col("ts")
