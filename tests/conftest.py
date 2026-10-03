@@ -30,7 +30,7 @@ def housing_lf() -> pl.LazyFrame:
 
 
 @pytest.fixture
-def energy_prices_lf() -> pl.LazyFrame:
+def base_timeseries_lf() -> pl.LazyFrame:
     return pl.scan_csv(DATA_DIR / "energy_prices.csv", infer_schema_length=None)
 
 
