@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 
+import dataframely as dy
 import polars as pl
 import polars.testing as plt
 import pytest
@@ -8,8 +9,12 @@ import pytest
 from lzipp_ml_lib import TimeseriesFeatures, TimeseriesSchema
 from lzipp_ml_lib.timeseries._features import _approx_seconds  # type: ignore
 
-DAY = 86_400
-YEAR = 365.25 * DAY
+# ------------------------------------------------------------------------------------ #
+#                                   _approx_seconds                                    #
+# ------------------------------------------------------------------------------------ #
+
+_DAY = 86_400
+_YEAR = 365.25 * _DAY
 
 
 @pytest.mark.parametrize(
@@ -18,19 +23,19 @@ YEAR = 365.25 * DAY
         ("1s", 1),
         ("1m", 60),
         ("1h", 3_600),
-        ("1d", DAY),
-        ("1w", 7 * DAY),
-        ("1mo", YEAR / 12),
-        ("1q", YEAR / 4),
-        ("1y", YEAR),
+        ("1d", _DAY),
+        ("1w", 7 * _DAY),
+        ("1mo", _YEAR / 12),
+        ("1q", _YEAR / 4),
+        ("1y", _YEAR),
         ("0h", 0),
-        ("24h", DAY),
-        ("5mo", 5 * YEAR / 12),  # "mo" is months, not minutes + "o"
+        ("24h", _DAY),
+        ("5mo", 5 * _YEAR / 12),  # "mo" is months, not minutes + "o"
         ("5m", 5 * 60),
-        ("1d12h", 1.5 * DAY),
-        ("2w3d", 17 * DAY),
+        ("1d12h", 1.5 * _DAY),
+        ("2w3d", 17 * _DAY),
         ("10m30s", 630),
-        ("1y1mo", YEAR + YEAR / 12),
+        ("1y1mo", _YEAR + _YEAR / 12),
     ],
 )
 def test_approx_seconds(duration: str, expected: float) -> None:
@@ -58,12 +63,9 @@ def test_approx_seconds_rejects_invalid(duration: str) -> None:
         _approx_seconds(duration)
 
 
-def _ts_lf(days: list[int], vals: Sequence[float | int | None]) -> pl.LazyFrame:
-    """A ts/val frame with one row per day of January 2024."""
-    return pl.LazyFrame(
-        {"ts": [datetime(2024, 1, d) for d in days], "val": vals},
-        schema={"ts": pl.Datetime("us"), "val": pl.Float64},
-    )
+# ------------------------------------------------------------------------------------ #
+#                              TimeseriesFeatures.prepare                              #
+# ------------------------------------------------------------------------------------ #
 
 
 @pytest.mark.parametrize(
@@ -122,6 +124,12 @@ def test_prepare_drops_invalid_values(bad_val: float | None, rule: str) -> None:
             id="int-val-cast-to-float",
         ),
         pytest.param(
+            pl.LazyFrame({"ts": ["2024-01-01T00:00:00"], "val": [1.0]}),
+            1,
+            {},
+            id="string-ts-parsed",
+        ),
+        pytest.param(
             pl.LazyFrame({"ts": ["2024-01-01 00:00:00"], "val": [1.0]}),
             0,
             {"ts|dtype": 1},
@@ -147,3 +155,98 @@ def test_prepare_real_data(base_timeseries_lf: pl.LazyFrame) -> None:
         df.height == base_timeseries_lf.select(pl.col("ts").n_unique()).collect().item()
     )
     assert TimeseriesSchema.is_valid(df)
+
+
+# ------------------------------------------------------------------------------------ #
+#                                TimeseriesFeatures.fit                                #
+# ------------------------------------------------------------------------------------ #
+
+
+def test_fit_learns_min_year_and_origin() -> None:
+    fe = TimeseriesFeatures().fit(_fit_lf())
+
+    assert fe._min_year == 2023  # type: ignore
+    assert fe._origin == datetime(2023, 12, 31, 22)  # type: ignore
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        pytest.param("hour", {10: 5.0, 22: 3.0}, id="hour"),
+        pytest.param("weekday", {7: 1.0, 1: 5.0}, id="weekday"),
+        pytest.param("month", {12: 1.0, 1: 5.0}, id="month"),
+        # (weekday - 1) * 24 + hour: Sun 22:00 -> 166, Mon 10:00 -> 10, Mon 22:00 -> 22
+        pytest.param("hour_of_week", {166: 1.0, 10: 5.0, 22: 5.0}, id="hour_of_week"),
+        pytest.param("day_of_year", {365: 1.0, 1: 4.0, 8: 7.0}, id="day_of_year"),
+    ],
+)
+def test_fit_learns_profile_means(key: str, expected: dict[int, float]) -> None:
+    fe = TimeseriesFeatures().fit(_fit_lf())
+
+    profile = fe._profiles[key]  # type: ignore
+    assert profile.columns == ["_key", f"profile_{key}"]
+    assert dict(profile.iter_rows()) == pytest.approx(expected)
+
+
+def test_fit_ignores_extra_columns() -> None:
+    plain = TimeseriesFeatures().fit(_fit_lf())
+    extra = TimeseriesFeatures().fit(_fit_lf(other=[9.0, 9.0, 9.0, 9.0]))
+
+    assert (extra._min_year, extra._origin) == (plain._min_year, plain._origin)  # type: ignore
+    for key, profile in plain._profiles.items():  # type: ignore
+        plt.assert_frame_equal(extra._profiles[key], profile, check_row_order=False)  # type: ignore
+
+
+def test_refit_replaces_previous_state() -> None:
+    later = TimeseriesSchema.validate(
+        pl.LazyFrame(
+            {"ts": [datetime(2030, 6, 1, 3)], "val": [42.0]},
+            schema={"ts": pl.Datetime("us"), "val": pl.Float64},
+        )
+    )
+    fe = TimeseriesFeatures().fit(_fit_lf()).fit(later)
+
+    assert fe._min_year == 2030  # type: ignore
+    assert fe._origin == datetime(2030, 6, 1, 3)  # type: ignore
+    assert dict(fe._profiles["hour"].iter_rows()) == {3: 42.0}  # type: ignore
+
+
+@pytest.mark.parametrize("method", ["trend", "profile"])
+def test_methods_need_fit(method: str) -> None:
+    lf = _fit_lf()
+
+    with pytest.raises(RuntimeError, match="fit"):
+        getattr(TimeseriesFeatures(), method)(lf)
+
+    fitted = TimeseriesFeatures().fit(lf)
+    assert getattr(fitted, method)(lf).collect().height == len(_FIT_TS)
+
+
+# ------------------------------------------------------------------------------------ #
+#                                       helpers                                        #
+# ------------------------------------------------------------------------------------ #
+
+_FIT_TS = [
+    datetime(2023, 12, 31, 22),
+    datetime(2024, 1, 1, 10),
+    datetime(2024, 1, 1, 22),
+    datetime(2024, 1, 8, 10),
+]
+_FIT_VALS = [1.0, 3.0, 5.0, 7.0]
+
+
+def _fit_lf(**extra_columns: list[object]) -> dy.LazyFrame[TimeseriesSchema]:
+    return TimeseriesSchema.validate(
+        pl.LazyFrame(
+            {"ts": _FIT_TS, "val": _FIT_VALS, **extra_columns},
+            schema_overrides={"ts": pl.Datetime("us")},
+        )
+    )
+
+
+def _ts_lf(days: list[int], vals: Sequence[float | int | None]) -> pl.LazyFrame:
+    """A ts/val frame with one row per day of January 2024."""
+    return pl.LazyFrame(
+        {"ts": [datetime(2024, 1, d) for d in days], "val": vals},
+        schema={"ts": pl.Datetime("us"), "val": pl.Float64},
+    )
