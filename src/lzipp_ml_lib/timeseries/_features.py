@@ -216,36 +216,57 @@ class TimeseriesFeatures:
         self,
         lf: dy.LazyFrame[TimeseriesSchema],
         pairs: Sequence[tuple[str, str]],
-        ratio: bool = False,
         drop_ts: bool = False,
         drop_nulls: bool = False,
     ) -> pl.LazyFrame:
-        """Add differences (and optionally ratios) between existing lag columns.
+        """Add differences between existing lag columns.
 
         Args:
             lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
                 e.g. the output of `lag`.
             pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
                 `[("lag_1d", "lag_7d")]` adds `lag_1d_minus_lag_7d`.
-            ratio (bool): Also add `{a}_over_{b}`, null where `b` is 0. Defaults to
-                False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
-            pl.LazyFrame: `lf` with the difference (and ratio) columns appended
-                (without `ts` if `drop_ts`).
+            pl.LazyFrame: `lf` with `{a}_minus_{b}` columns appended (without `ts` if
+                `drop_ts`).
         """
-        features: list[pl.Expr] = []
-        for a, b in pairs:
-            features.append((pl.col(a) - pl.col(b)).alias(f"{a}_minus_{b}"))
-            if ratio:
-                features.append(
-                    pl.when(pl.col(b) != 0)
-                    .then(pl.col(a) / pl.col(b))
-                    .alias(f"{a}_over_{b}")
-                )
-        return _cleanup(lf.with_columns(features), drop_ts, drop_nulls)
+        out = lf.with_columns(
+            (pl.col(a) - pl.col(b)).alias(f"{a}_minus_{b}") for a, b in pairs
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
+
+    def lag_ratios(
+        self,
+        lf: dy.LazyFrame[TimeseriesSchema],
+        pairs: Sequence[tuple[str, str]],
+        drop_ts: bool = False,
+        drop_nulls: bool = False,
+    ) -> pl.LazyFrame:
+        """Add ratios between existing lag columns.
+
+        Args:
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
+                e.g. the output of `lag`.
+            pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
+                `[("lag_1d", "lag_7d")]` adds `lag_1d_over_lag_7d`.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with `{a}_over_{b}` columns appended, null where `b` is
+                0 (without `ts` if `drop_ts`).
+        """
+        out = lf.with_columns(
+            pl.when(pl.col(b) != 0)
+            .then(pl.col(a) / pl.col(b))
+            .otherwise(None)
+            .alias(f"{a}_over_{b}")
+            for a, b in pairs
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def rolling(
         self,
