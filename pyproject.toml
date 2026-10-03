@@ -19,6 +19,7 @@ lzipp_ml_lib = { path = ".", editable = true }
 [tool.pixi.tasks]
 fmt = "pixi exec ruff format && pixi exec ruff check --fix"
 lint = "pixi exec ruff check"
+test = "pixi run pytest ./tests"
 
 [tool.pixi.dependencies]
 scikit-learn = ">=1.9.1,<2"
@@ -44,6 +45,7 @@ pytest = "*"
 ipykernel = "*"
 matplotlib = "*"
 seaborn = "*"
+hypothesis = ">=6.168.3,<7"
 
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
