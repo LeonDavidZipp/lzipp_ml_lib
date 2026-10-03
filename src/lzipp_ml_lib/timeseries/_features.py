@@ -105,7 +105,7 @@ class TimeseriesFeatures:
         """
         out = lf
         if unique:
-            out = out.unique("ts", keep="first")
+            out = out.unique("ts", keep="first", maintain_order=not sort)
         if sort:
             out = out.sort(by="ts")
         info = TimeseriesSchema.filter(out, cast=True)
