@@ -1,8 +1,10 @@
+import re
 from datetime import datetime
 
 import polars as pl
 import polars.testing as plt
 import pytest
+from hypothesis import given
 
 from lzipp_ml_lib.timeseries._features import (
     _approx_seconds,  # type: ignore
@@ -10,6 +12,8 @@ from lzipp_ml_lib.timeseries._features import (
     _maybe_drop_nulls,  # type: ignore
     _maybe_drop_ts,  # type: ignore
 )
+
+from ._composites import DURATION_SECONDS, duration_like_text, duration_parts
 
 # ------------------------------------------------------------------------------------ #
 #                                   _approx_seconds                                    #
@@ -63,6 +67,26 @@ def test_approx_seconds(duration: str, expected: float) -> None:
 def test_approx_seconds_rejects_invalid(duration: str) -> None:
     with pytest.raises(ValueError, match="invalid duration"):
         _approx_seconds(duration)
+
+
+@given(parts=duration_parts())
+def test_approx_seconds_sums_any_valid_duration(parts: list[tuple[int, str]]) -> None:
+    duration = "".join(f"{n}{unit}" for n, unit in parts)
+
+    expected = sum(n * DURATION_SECONDS[unit] for n, unit in parts)
+    assert _approx_seconds(duration) == pytest.approx(expected)
+
+
+@given(text=duration_like_text)
+def test_approx_seconds_accepts_exactly_valid_durations(text: str) -> None:
+    # A duration is one or more "<digits><unit>" parts with nothing in between.
+    valid = re.fullmatch(r"(?:\d+(?:mo|y|q|w|d|h|m|s))+", text) is not None
+
+    if valid:
+        assert _approx_seconds(text) >= 0
+    else:
+        with pytest.raises(ValueError, match="invalid duration"):
+            _approx_seconds(text)
 
 
 # ------------------------------------------------------------------------------------ #
