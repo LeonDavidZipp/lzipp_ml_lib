@@ -115,6 +115,20 @@ def _with_inserted_char(draw: st.DrawFn) -> str:
     return text[:pos] + draw(st.sampled_from(list(" .-xDmo0"))) + text[pos:]
 
 
+@st.composite
+def time_string(draw: st.DrawFn) -> str:
+    """One window length like `24h` or `3mo`."""
+    unit = draw(st.sampled_from(list(UNITS.values())))
+    count = draw(st.integers(1, 100))
+    return f"{count}{unit}"
+
+
+def rolling_windows() -> st.SearchStrategy[list[str]]:
+    """1-4 distinct window lengths; distinct, since each window gets its own
+    `roll_{stat}_{window}` columns and duplicate names would clash."""
+    return st.lists(time_string(), min_size=1, max_size=4, unique=True)
+
+
 # Valid durations, almost-valid ones and random text over the same characters.
 duration_like_text = st.one_of(
     duration_parts().map(_join),
