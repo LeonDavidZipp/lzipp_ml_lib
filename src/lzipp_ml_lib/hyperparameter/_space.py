@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Self
 
+import numpy as np
 import xgboost as xgb
 from prophet import Prophet
 from rustuna import Trial
@@ -12,6 +14,9 @@ class HyperparameterDimension(ABC):
     @abstractmethod
     def suggest(self, trial: Trial) -> CategoricalChoiceType: ...
 
+    @abstractmethod
+    def values(self) -> Sequence[CategoricalChoiceType]: ...
+
 
 class CategoricalDimension(HyperparameterDimension):
     def __init__(self, name: str, choices: list[CategoricalChoiceType]):
@@ -20,6 +25,9 @@ class CategoricalDimension(HyperparameterDimension):
 
     def suggest(self, trial: Trial) -> CategoricalChoiceType:
         return trial.suggest_categorical(self.name, self.choices)
+
+    def values(self) -> Sequence[CategoricalChoiceType]:
+        return self.choices
 
 
 class IntegerDimension(HyperparameterDimension):
@@ -36,6 +44,9 @@ class IntegerDimension(HyperparameterDimension):
         return trial.suggest_int(
             self.name, self.low, self.high, step=self.step, log=self.log
         )
+
+    def values(self) -> Sequence[int]:
+        return list(range(self.low, self.high + 1, self.step))
 
 
 class FloatDimension(HyperparameterDimension):
@@ -57,6 +68,11 @@ class FloatDimension(HyperparameterDimension):
         return trial.suggest_float(
             self.name, self.low, self.high, step=self.step, log=self.log
         )
+
+    def values(self) -> Sequence[float]:
+        step = self.step if self.step is not None else 1.0
+        n = round((self.high - self.low) / step) + 1
+        return np.log(np.linspace(self.low, self.high, n)).tolist()
 
 
 class HyperparameterSpace(dict[str, HyperparameterDimension]):
