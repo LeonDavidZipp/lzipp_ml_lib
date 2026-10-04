@@ -336,7 +336,7 @@ def _tune_and_fit_xgb(
     study = rustuna.create_study(direction=direction)
     study.optimize(objective, n_trials=n_trials)
     x_final, y_final = _join_final_fit_data(
-        final_fit_data, x_train, y_train, eval_set, x_test, y_test
+        final_fit_data, x_train, y_train, x_test, y_test, eval_set
     )
     # The final fit has no eval_set to stop on (it may be part of the final data),
     # so train exactly as many rounds as the best trial used instead.
@@ -388,9 +388,9 @@ def _join_final_fit_data(
     final_fit_data: FinalFitData,
     x_train: pl.DataFrame,
     y_train: pl.DataFrame,
+    x_test: pl.DataFrame,
+    y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    x_test: pl.DataFrame | None = None,
-    y_test: pl.DataFrame | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Stack the data the final model is fit on, in train -> val -> test order.
 
@@ -403,8 +403,6 @@ def _join_final_fit_data(
             raise ValueError(f"final_fit_data='{final_fit_data}' needs an eval_set")
         parts.extend(eval_set)
     if final_fit_data == "train_val_test":
-        if x_test is None or y_test is None:
-            raise ValueError("final_fit_data='train_val_test' needs x_test and y_test")
         parts.append((x_test, y_test))
     return pl.concat(x for x, _ in parts), pl.concat(y for _, y in parts)
 
