@@ -58,9 +58,11 @@ def fit_xgb_regressor(
             are pinned to their library defaults.
         early_stopping_rounds (int): Stop a trial's boosting after this many rounds
             without improvement on the last `eval_set` pair; the final model is
-            then trained for as many rounds as the best trial used. Ignored
-            without an `eval_set` or if `search_space` tunes
-            `early_stopping_rounds` itself. Defaults to 50.
+            then trained for as many rounds as the best trial used. A tuned
+            `n_estimators` thus only caps the rounds, and the final model's
+            `n_estimators` need not be one of its values. Ignored without an
+            `eval_set` or if `search_space` tunes `early_stopping_rounds` itself.
+            Defaults to 50.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
@@ -174,9 +176,11 @@ def fit_xgb_classifier(
             are pinned to their library defaults.
         early_stopping_rounds (int): Stop a trial's boosting after this many rounds
             without improvement on the last `eval_set` pair; the final model is
-            then trained for as many rounds as the best trial used. Ignored
-            without an `eval_set` or if `search_space` tunes
-            `early_stopping_rounds` itself. Defaults to 50.
+            then trained for as many rounds as the best trial used. A tuned
+            `n_estimators` thus only caps the rounds, and the final model's
+            `n_estimators` need not be one of its values. Ignored without an
+            `eval_set` or if `search_space` tunes `early_stopping_rounds` itself.
+            Defaults to 50.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
