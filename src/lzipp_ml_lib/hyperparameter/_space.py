@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Generic, Self
+from typing import Generic, Self, TypeVar
 
 import numpy as np
 import xgboost as xgb
@@ -12,6 +12,8 @@ from rustuna import Trial
 from ._types import M
 
 CategoricalChoiceType = float | int | str | bool | None
+# method-scoped counterpart of M, for classmethods called on the unparametrized class
+_Model = TypeVar("_Model", bound=xgb.XGBModel | Prophet)
 
 
 class HyperparameterDimension(ABC):
@@ -91,7 +93,7 @@ def _fixed(**defaults: CategoricalChoiceType) -> dict[str, HyperparameterDimensi
 # classifiers pick it from the number of classes), `scale_pos_weight` (binary only),
 # `early_stopping_rounds` (handled by the fitting functions) and prophet's
 # `changepoints` / `holidays` (not scalar choices).
-_XGB_TREE_DEFAULTS: dict[str, CategoricalChoiceType] = {
+_XGB_DEFAULTS: dict[str, CategoricalChoiceType] = {
     "booster": "gbtree",
     "tree_method": "hist",
     "grow_policy": "depthwise",
@@ -108,22 +110,11 @@ _XGB_TREE_DEFAULTS: dict[str, CategoricalChoiceType] = {
     "max_cat_to_onehot": 4,
     "max_cat_threshold": 64,
     "n_estimators": 100,
-}
-_XGB_BOOST_DEFAULTS: dict[str, CategoricalChoiceType] = {
-    **_XGB_TREE_DEFAULTS,
     "learning_rate": 0.3,
     "reg_lambda": 1.0,
     "subsample": 1.0,
     "colsample_bynode": 1.0,
     "num_parallel_tree": 1,
-}
-# XGBRF* set num_parallel_tree from n_estimators themselves
-_XGB_RF_DEFAULTS: dict[str, CategoricalChoiceType] = {
-    **_XGB_TREE_DEFAULTS,
-    "learning_rate": 1.0,
-    "reg_lambda": 1e-5,
-    "subsample": 0.8,
-    "colsample_bynode": 0.8,
 }
 _PROPHET_DEFAULTS: dict[str, CategoricalChoiceType] = {
     "growth": "linear",
@@ -146,10 +137,8 @@ _PROPHET_DEFAULTS: dict[str, CategoricalChoiceType] = {
 def _model_defaults(
     model_type: type[xgb.XGBModel] | type[Prophet],
 ) -> dict[str, CategoricalChoiceType]:
-    if issubclass(model_type, (xgb.XGBRFRegressor, xgb.XGBRFClassifier)):
-        return _XGB_RF_DEFAULTS
     if issubclass(model_type, xgb.XGBModel):
-        return _XGB_BOOST_DEFAULTS
+        return _XGB_DEFAULTS
     return _PROPHET_DEFAULTS
 
 
@@ -208,17 +197,15 @@ class HyperparameterSpace(dict[str, HyperparameterDimension], Generic[M]):
         return type(self)(self.model_type, {**self, **_fixed(**missing)})
 
     @classmethod
-    def default_space_from_model(cls, model_type: type[M]) -> HyperparameterSpace[M]:
+    def default_space_from_model(
+        cls, model_type: type[_Model]
+    ) -> HyperparameterSpace[_Model]:
         """
         Dynamically return the correct default search space based on the model class.
         """
         dims: Mapping[str, HyperparameterDimension]
-        if issubclass(model_type, xgb.XGBRFRegressor):
-            dims = cls.default_xgb_rf_regressor()
-        elif issubclass(model_type, xgb.XGBRegressor):
+        if issubclass(model_type, xgb.XGBRegressor):
             dims = cls.default_xgb_regressor()
-        elif issubclass(model_type, xgb.XGBRFClassifier):
-            dims = cls.default_xgb_rf_classifier()
         elif issubclass(model_type, xgb.XGBClassifier):
             dims = cls.default_xgb_classifier()
         elif issubclass(model_type, xgb.XGBRanker):
@@ -263,37 +250,10 @@ class HyperparameterSpace(dict[str, HyperparameterDimension], Generic[M]):
         ).with_defaults()
 
     @classmethod
-    def default_xgb_rf_regressor(cls) -> HyperparameterSpace[xgb.XGBRFRegressor]:
-        """Standard search space for XGBoost Random Forest regression tasks."""
-        return HyperparameterSpace(
-            xgb.XGBRFRegressor,
-            {
-                "n_estimators": IntegerDimension(
-                    "n_estimators", low=100, high=1000, step=50
-                ),
-                "max_depth": IntegerDimension("max_depth", low=5, high=20),
-                "subsample": FloatDimension("subsample", low=0.5, high=0.95),
-                "colsample_bynode": FloatDimension(
-                    "colsample_bynode", low=0.4, high=0.9
-                ),
-                "min_child_weight": IntegerDimension(
-                    "min_child_weight", low=1, high=10
-                ),
-            },
-        ).with_defaults()
-
-    @classmethod
     def default_xgb_classifier(cls) -> HyperparameterSpace[xgb.XGBClassifier]:
         """Standard search space for XGBoost classification tasks."""
         return HyperparameterSpace(
             xgb.XGBClassifier, cls.default_xgb_regressor()
-        ).with_defaults()
-
-    @classmethod
-    def default_xgb_rf_classifier(cls) -> HyperparameterSpace[xgb.XGBRFClassifier]:
-        """Standard search space for XGBoost Random Forest classification tasks."""
-        return HyperparameterSpace(
-            xgb.XGBRFClassifier, cls.default_xgb_rf_regressor()
         ).with_defaults()
 
     @classmethod
