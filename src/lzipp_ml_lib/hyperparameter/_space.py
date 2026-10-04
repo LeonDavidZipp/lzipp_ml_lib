@@ -165,7 +165,31 @@ class HyperparameterSpace(dict[str, HyperparameterDimension], Generic[M]):
         self.model_type = model_type
 
     def suggest(self, trial: Trial) -> dict[str, int | float | CategoricalChoiceType]:
+        """
+        Suggest a value for every dimension from `trial`.
+
+        Each suggestion is recorded in the trial's params under the dimension's
+        name, so passing the result to the model constructor reproduces the trial.
+
+        Args:
+            trial: The trial to draw the suggestions from.
+
+        Returns:
+            Parameter names mapped to their suggested values.
+        """
         return {key: val.suggest(trial) for key, val in self.items()}
+
+    def value_spaces(self) -> dict[str, Sequence[CategoricalChoiceType]]:
+        """
+        List the discrete values every dimension can take, e.g. for a grid search.
+
+        Categorical dimensions give their choices, numeric ones their grid from
+        `low` to `high` (both included); see each dimension's `values()`.
+
+        Returns:
+            Parameter names mapped to their possible values.
+        """
+        return {key: val.values() for key, val in self.items()}
 
     def with_defaults(self) -> Self:
         """
