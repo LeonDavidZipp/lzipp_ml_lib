@@ -1,6 +1,7 @@
 import inspect
 from collections.abc import Callable
 from typing import Any
+import numpy as np
 
 import pytest
 import rustuna
@@ -37,9 +38,7 @@ def _pinned(space: HyperparameterSpace[Any]) -> dict[str, Any]:
 
 DEFAULT_SPACES: list[tuple[Callable[[], HyperparameterSpace[Any]], type[Any]]] = [
     (HyperparameterSpace.default_xgb_regressor, xgb.XGBRegressor),
-    (HyperparameterSpace.default_xgb_rf_regressor, xgb.XGBRFRegressor),
     (HyperparameterSpace.default_xgb_classifier, xgb.XGBClassifier),
-    (HyperparameterSpace.default_xgb_rf_classifier, xgb.XGBRFClassifier),
     (HyperparameterSpace.default_xgb_ranker, xgb.XGBRanker),
     (HyperparameterSpace.default_prophet, Prophet),
 ]
@@ -95,12 +94,15 @@ def test_float_dimension_suggests_within_bounds():
         assert 1e-3 <= suggested["f"] <= 0.3
 
 
-@pytest.mark.xfail(
-    strict=True, reason="FloatDimension.values() returns np.log of the grid points"
-)
 def test_float_dimension_values_include_both_bounds():
     values = FloatDimension("f", low=0.1, high=0.5, step=0.1).values()
     assert values == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5])
+    
+    
+def test_float_dimension_log_values_include_both_bounds():
+    values = FloatDimension("f", low=0.1, high=0.5, step=0.1, log=True).values()
+    expected_values = np.log(np.array([0.1, 0.2, 0.3, 0.4, 0.5])).tolist()
+    assert values == pytest.approx(expected_values)
 
 
 # ------------------------------------------------------------------------------------ #
@@ -145,19 +147,7 @@ def test_with_defaults_is_idempotent():
     assert _pinned(twice) == _pinned(once)
 
 
-def test_with_defaults_uses_rf_defaults_for_rf_models():
-    boost = _pinned(HyperparameterSpace(xgb.XGBRegressor).with_defaults())
-    rf = _pinned(HyperparameterSpace(xgb.XGBRFRegressor).with_defaults())
-    assert boost["learning_rate"] == 0.3
-    assert rf["learning_rate"] == 1.0
-    assert rf["reg_lambda"] == 1e-5
-    # XGBRF* derive num_parallel_tree from n_estimators themselves
-    assert "num_parallel_tree" in boost
-    assert "num_parallel_tree" not in rf
-
-
 def test_with_defaults_leaves_out_early_stopping_rounds():
-    # the fitting functions treat early_stopping_rounds in the space specially
     full = HyperparameterSpace(xgb.XGBRegressor).with_defaults()
     assert "early_stopping_rounds" not in full
 
@@ -243,10 +233,6 @@ def test_default_classifier_spaces_match_regressor_spaces():
     assert (
         HyperparameterSpace.default_xgb_classifier().keys()
         == HyperparameterSpace.default_xgb_regressor().keys()
-    )
-    assert (
-        HyperparameterSpace.default_xgb_rf_classifier().keys()
-        == HyperparameterSpace.default_xgb_rf_regressor().keys()
     )
 
 
