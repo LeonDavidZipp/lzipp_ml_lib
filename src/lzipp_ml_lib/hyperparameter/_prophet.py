@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+from typing import Any, cast
 
 import dataframely as dy
 import pandas as pd
@@ -5,10 +7,16 @@ import polars as pl
 import rustuna
 from prophet import Prophet
 from prophet.diagnostics import cross_validation, performance_metrics
-from collections.abc import Sequence
+from rustuna.trial import TrialState
 
 from ._space import HyperparameterSpace
-from ._types import DIRECTIONS, FinalFitData, RegressionEvalMetric, RegressionFitResult, RegressionMetrics
+from ._types import (
+    DIRECTIONS,
+    FinalFitData,
+    ProphetEvalMetric,
+    RegressionFitResult,
+    RegressionMetrics,
+)
 
 
 class ProphetSchema(dy.Schema):
@@ -24,26 +32,61 @@ class ProphetSchema(dy.Schema):
         return pl.col("ds").is_sorted(descending=False)
 
 
-def fit_prophet(
-    df: dy.DataFrame[ProphetSchema],
+def generate_fitted_model(
+    y: dy.DataFrame[ProphetSchema],
+    y_test: dy.DataFrame[ProphetSchema],
+    regressors: Sequence[str] | None = None,
+    interval_width: float = 0.95,
     search_space: HyperparameterSpace | None = None,
-    cross_validation_threshold: int = 1000,
-    metric: RegressionEvalMetric = "mape",
-):
+    n_trials: int = 100,
+    final_fit_data: FinalFitData = "train",
+    metric: ProphetEvalMetric = "mape",
+    horizon: str | pd.Timedelta = "180 days",
+) -> RegressionFitResult[Prophet]:
     """
-    Fits a prophet model.
+    Tunes and fits a Prophet model.
+
+    Runs `n_trials` hyperparameter trials, each scored with Prophet's time series
+    cross validation on `y` (see below), then fits the final model with the best
+    hyperparameters on `y` and scores it on `y_test`.
 
     Args:
-        df (dy.DataFrame[ProphetSchema]): A prophet-typical dataframe containing
-            'ds' and 'y' columns.
+        y (dy.DataFrame[ProphetSchema]): Training data with 'ds', 'y' and any
+            regressor columns.
+        y_test (pl.DataFrame): Test data following `y` in time, with 'ds', 'y' and
+            the same regressor columns. Only used for the returned metrics, never
+            during tuning.
+        regressors (Sequence[str] | None): Columns of `y` added as extra
+            regressors. If None, every column except 'ds' and 'y' is used.
+            Defaults to None.
+        interval_width (float): Width of the uncertainty intervals. Defaults to
+            0.95.
         search_space (HyperparameterSpace | None): The hyperparameter space used
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
-        cross_validation_threshold (int): Number of datapoints needed to perform cross
-            validation instead of a train-test-split. Defaults to 1000.
+        n_trials (int): Number of hyperparameter trials. Defaults to 100.
+        final_fit_data (FinalFitData): Not used yet; the final model is always fit
+            on `y`. Defaults to `"train"`.
+        metric (ProphetEvalMetric): Metric the trials are minimized on, one of
+            `"mape"`, `"mae"`, `"rmse"` or `"mse"`. Defaults to `"mape"`.
+        horizon (str | pd.Timedelta): How far ahead each cross validation fold
+            forecasts; should match the horizon the model is used for. Defaults to
+            `"180 days"`.
 
     Returns:
-        HyperparameterFitResult[Prophet]: The fitted model and associated metrics.
+        RegressionFitResult[Prophet]: The final model and its metrics on `y_test`.
+
+    Raises:
+        ValueError: If `y` is too short for cross validation with the given
+            `horizon`, or if no trial produced performance metrics.
+
+    Cross Validation:
+        Each fold trains on all data before a cutoff and forecasts the following
+        `horizon`. The first cutoff leaves at least `max(longest seasonality,
+        3 * horizon)` of training data, and cutoffs are spaced to give at least 3
+        folds where the data allows, and never further apart than `horizon`. A
+        trial's score is `metric` averaged over the forecast horizon, with later
+        horizon steps weighted up to twice as much as early ones.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -68,84 +111,109 @@ def fit_prophet(
         }
         ```
     """
-    space = search_space or HyperparameterSpace.default_prophet()
-
-    def objective(trial: rustuna.Trial) -> float:
-        params = {key: val.suggest(trial) for key, val in space.items()}
-        model = Prophet(**params)  # type: ignore
-        model.fit(df.to_pandas())
-
-        # TODO: implement
-        return 0.0
-
-    rustuna.create_study().optimize(objective, n_trials=50)
-    return RegressionFitResult(model=Prophet(), metrics=Metrics(mape=0.0))
-    ...
-
-
-def generate_fitted_model(
-    y: dy.DataFrame[ProphetSchema],
-    y_test: pl.DataFrame,
-    regressors: Sequence[str] | None = None,
-    interval_width: float = 0.95,
-    search_space: HyperparameterSpace | None = None,
-    n_trials: int = 100,
-    final_fit_data: FinalFitData = "train",
-    metric: RegressionEvalMetric = "mape",
-) -> Prophet:
-    """
-    Fit a Prophet model with the given df and search space.
-
-    Args:
-        df: Lazy frame containing the time series df
-        search_space: Configuration for parameter search
-
-    Returns:
-        Fitted Prophet model
-    """
-
     search_space = search_space or HyperparameterSpace.default_prophet()
+    horizon = pd.Timedelta(horizon)
+    regressors = _get_regressors(y, regressors)
     y_pd = y.to_pandas()
-    regressors: list[str] = [col for col in y.columns if col not in ["ds", "y"]]
 
     def objective(trial: rustuna.Trial) -> float:
-        """
-        Objective function for Optuna optimization.
-
-        Args:
-            trial: Optuna trial object for parameter suggestions
-
-        Returns:
-            Score for the current parameter combination
-        """
-
         params = {key: val.suggest(trial) for key, val in search_space.items()}
-        params["interval_width"] = interval_width
-        model = Prophet(**params)  # type: ignore
-        for reg in regressors:
-            model = model.add_regressor(reg)  # type: ignore
+        model = _build_model(params, regressors, interval_width)
         model.fit(y_pd)  # type: ignore
 
+        initial, period = _cv_windows(model, horizon)
         results: pd.DataFrame = cross_validation(  # type: ignore
             model,
-            horizon="180 days",
-            initial="365 days",
-            period="180 days",
+            horizon=horizon,
+            initial=initial,
+            period=period,
             parallel="processes",
         )
 
         m: pd.DataFrame | None = performance_metrics(results)
         if m is None:
-            raise ValueError("Performance metrics could not be computed.")
+            raise rustuna.TrialPruned("Performance metrics could not be computed.")
         metrics_df = pl.from_pandas(m)
         weights = pl.linear_space(1, 2, pl.len(), closed="none")
-        val: float = metrics_df.select(pl.col(metric) * weights / weights.sum()).item()
+        val: float = metrics_df.select(
+            (pl.col(metric) * weights).sum() / weights.sum()
+        ).item()
         return val
 
     study = rustuna.create_study(direction=DIRECTIONS[metric])
     study.optimize(objective, n_trials=n_trials)
+    if not any(t.state == TrialState.COMPLETE for t in study.trials):
+        raise ValueError(
+            f"All {n_trials} trials were pruned; performance metrics could not be "
+            "computed for any hyperparameter combination."
+        )
 
-    best_model = Prophet(**study.best_trial.params).fit(y_pd)  # type: ignore
-    inp = best_model.make_future_dataframe(y_test.height)
-    y_pred = best_model.predict(inp)["yhat"]
-    RegressionFitResult(best_model, RegressionMetrics.calculate(y_test, y_pred))
+    best_model = _build_model(study.best_trial.params, regressors, interval_width).fit(
+        y_pd
+    )
+    y_pred = best_model.predict(y_test.select("ds", *regressors).to_pandas())["yhat"]
+    return RegressionFitResult(
+        best_model, RegressionMetrics.calculate(y_test["y"], y_pred)
+    )
+
+
+def _get_regressors(y: pl.DataFrame, regressors: Sequence[str] | None) -> list[str]:
+    internal_regressors = set([col for col in y.columns if col not in ("ds", "y")])
+    if regressors and list(internal_regressors & set(regressors)) != list(regressors):
+        ValueError(
+            f"Not all provided regressors {regressors} could be found in the available "
+            + f"regressor columns {internal_regressors}"
+        )
+    return (
+        list(regressors)
+        if regressors is not None
+        else [col for col in y.columns if col not in ["ds", "y"]]
+    )
+
+
+def _build_model(
+    params: dict[str, Any], regressors: Sequence[str], interval_width: float
+) -> Prophet:
+    model = Prophet(**params, interval_width=interval_width)  # type: ignore
+    for reg in regressors:
+        model = model.add_regressor(reg)  # type: ignore
+    return model
+
+
+def _cv_windows(
+    model: Prophet, horizon: pd.Timedelta, min_folds: int = 3
+) -> tuple[pd.Timedelta, pd.Timedelta]:
+    """
+    Derive `initial` and `period` for Prophet's `cross_validation` from the horizon.
+
+    `initial` covers the longest active seasonality and at least 3 horizons (Prophet's
+    default). `period` spreads `min_folds` cutoffs over the remaining data, capped at
+    `horizon` so no data goes unscored, and snapped to a multiple of the data frequency.
+
+    Args:
+        model: A fitted Prophet model, used for its history and seasonalities.
+        horizon: How far ahead each fold forecasts.
+        min_folds: Number of folds to aim for if enough data is available.
+
+    Returns:
+        Tuple of (initial, period).
+    """
+    ds = cast(pd.DataFrame, model.history)["ds"]
+    span = pd.Timedelta(ds.max() - ds.min())
+    freq = pd.Timedelta(ds.diff().median())
+
+    longest_season = max(
+        (pd.Timedelta(days=s["period"]) for s in model.seasonalities.values()),
+        default=pd.Timedelta(0),
+    )
+    initial = max(longest_season, 3 * horizon)
+
+    usable = span - initial - horizon
+    if usable < pd.Timedelta(0):
+        raise ValueError(
+            f"Cross validation needs at least {initial + horizon} of data, got {span}."
+        )
+
+    period = min(horizon, usable / max(min_folds - 1, 1))
+    period = max(freq, (period // freq) * freq)
+    return initial, period
