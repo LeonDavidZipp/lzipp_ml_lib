@@ -52,14 +52,6 @@ def regression_train_val_test_lfs(
     )
 
 
-def _x_lf(x: NDArray[np.float64]) -> pl.LazyFrame:
-    return pl.LazyFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])])
-
-
-def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.LazyFrame:
-    return pl.LazyFrame({"y": y})
-
-
 @st.composite
 def _regression_data(
     draw: st.DrawFn,
@@ -151,3 +143,11 @@ def _classification_data(
         random_state=draw(st.integers(0, 2**32 - 1)),
     )
     return x, y  # type: ignore
+
+
+def _x_lf(x: NDArray[np.float64]) -> pl.LazyFrame:
+    return pl.LazyFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])])
+
+
+def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.LazyFrame:
+    return pl.LazyFrame({"y": y})
