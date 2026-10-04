@@ -261,19 +261,23 @@ class HyperparameterSpace(dict[str, HyperparameterDimension], Generic[M]):
     @classmethod
     def default_xgb_classifier(cls) -> HyperparameterSpace[xgb.XGBClassifier]:
         """Standard search space for XGBoost classification tasks."""
-        return HyperparameterSpace(xgb.XGBClassifier, cls.default_xgb_regressor())
+        return HyperparameterSpace(
+            xgb.XGBClassifier, cls.default_xgb_regressor()
+        ).with_defaults()
 
     @classmethod
     def default_xgb_rf_classifier(cls) -> HyperparameterSpace[xgb.XGBRFClassifier]:
         """Standard search space for XGBoost Random Forest classification tasks."""
-        return HyperparameterSpace(xgb.XGBRFClassifier, cls.default_xgb_rf_regressor())
+        return HyperparameterSpace(
+            xgb.XGBRFClassifier, cls.default_xgb_rf_regressor()
+        ).with_defaults()
 
     @classmethod
     def default_xgb_ranker(cls) -> HyperparameterSpace[xgb.XGBRanker]:
         """Standard search space for XGBoost learning-to-rank tasks."""
         space = HyperparameterSpace(xgb.XGBRanker, cls.default_xgb_regressor())
         space["max_depth"] = IntegerDimension("max_depth", low=2, high=8)
-        return space
+        return space.with_defaults()
 
     @classmethod
     def default_prophet(cls) -> HyperparameterSpace[Prophet]:

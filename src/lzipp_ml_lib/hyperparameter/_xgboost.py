@@ -31,7 +31,7 @@ def fit_xgb_regressor(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    search_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace[xgb.XGBRegressor] | None = None,
     early_stopping_rounds: int = 50,
     n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
@@ -53,9 +53,10 @@ def fit_xgb_regressor(
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
             `(x, y)` pairs XGBoost monitors during each trial's fit; the last one
             is used for early stopping. Defaults to None.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
+        search_space (HyperparameterSpace[xgb.XGBRegressor] | None): The
+            hyperparameter space used for optimization. If None, defaults to a
+            basic hyperparameter space (see below). Parameters it doesn't cover
+            are pinned to their library defaults.
         early_stopping_rounds (int): Stop a trial's boosting after this many rounds
             without improvement on the last `eval_set` pair; the final model is
             then trained for as many rounds as the best trial used. Ignored
@@ -76,7 +77,7 @@ def fit_xgb_regressor(
 
     Raises:
         ValueError: If `final_fit_data` includes `eval_set` data but none was
-            passed.
+            passed, or if `search_space` is for a different model type.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -99,8 +100,9 @@ def fit_xgb_regressor(
         }
         ```
 
-        These untuned parameters are pinned to their library defaults, so every
-        trial records them too:
+        Any hyperparameter a search space (default or passed) doesn't tune is
+        pinned to its library default, so every trial records the full model
+        configuration. For the default space, these are:
 
         ```python
         {
@@ -119,7 +121,11 @@ def fit_xgb_regressor(
         }
         ```
     """
-    search_space = search_space or HyperparameterSpace.default_xgb_regressor()
+    search_space = (
+        search_space.with_defaults()
+        if search_space is not None
+        else HyperparameterSpace.default_xgb_regressor()
+    )
     return _fit_any_xgb_regressor(
         model_type=xgb.XGBRegressor,
         x_train=x_train,
@@ -141,7 +147,7 @@ def fit_xgb_rf_regressor(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    search_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace[xgb.XGBRFRegressor] | None = None,
     n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
     metric: RegressionEvalMetric = "mape",
@@ -162,9 +168,10 @@ def fit_xgb_rf_regressor(
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
             `(x, y)` pairs XGBoost monitors during each trial's fit. Defaults to
             None.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
+        search_space (HyperparameterSpace[xgb.XGBRFRegressor] | None): The
+            hyperparameter space used for optimization. If None, defaults to a
+            basic hyperparameter space (see below). Parameters it doesn't cover
+            are pinned to their library defaults.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
@@ -180,7 +187,7 @@ def fit_xgb_rf_regressor(
 
     Raises:
         ValueError: If `final_fit_data` includes `eval_set` data but none was
-            passed.
+            passed, or if `search_space` is for a different model type.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -197,8 +204,9 @@ def fit_xgb_rf_regressor(
         }
         ```
 
-        These untuned parameters are pinned to their library defaults, so every
-        trial records them too:
+        Any hyperparameter a search space (default or passed) doesn't tune is
+        pinned to its library default, so every trial records the full model
+        configuration. For the default space, these are:
 
         ```python
         {
@@ -220,7 +228,11 @@ def fit_xgb_rf_regressor(
         }
         ```
     """
-    search_space = search_space or HyperparameterSpace.default_xgb_rf_regressor()
+    search_space = (
+        search_space.with_defaults()
+        if search_space is not None
+        else HyperparameterSpace.default_xgb_rf_regressor()
+    )
     return _fit_any_xgb_regressor(
         model_type=xgb.XGBRFRegressor,
         x_train=x_train,
@@ -242,7 +254,7 @@ def fit_xgb_classifier(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    search_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace[xgb.XGBClassifier] | None = None,
     early_stopping_rounds: int = 50,
     n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
@@ -264,9 +276,10 @@ def fit_xgb_classifier(
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
             `(x, y)` pairs XGBoost monitors during each trial's fit; the last one
             is used for early stopping. Defaults to None.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
+        search_space (HyperparameterSpace[xgb.XGBClassifier] | None): The
+            hyperparameter space used for optimization. If None, defaults to a
+            basic hyperparameter space (see below). Parameters it doesn't cover
+            are pinned to their library defaults.
         early_stopping_rounds (int): Stop a trial's boosting after this many rounds
             without improvement on the last `eval_set` pair; the final model is
             then trained for as many rounds as the best trial used. Ignored
@@ -289,7 +302,7 @@ def fit_xgb_classifier(
 
     Raises:
         ValueError: If `final_fit_data` includes `eval_set` data but none was
-            passed.
+            passed, or if `search_space` is for a different model type.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -312,8 +325,9 @@ def fit_xgb_classifier(
         }
         ```
 
-        These untuned parameters are pinned to their library defaults, so every
-        trial records them too:
+        Any hyperparameter a search space (default or passed) doesn't tune is
+        pinned to its library default, so every trial records the full model
+        configuration. For the default space, these are:
 
         ```python
         {
@@ -332,7 +346,11 @@ def fit_xgb_classifier(
         }
         ```
     """
-    search_space = search_space or HyperparameterSpace.default_xgb_classifier()
+    search_space = (
+        search_space.with_defaults()
+        if search_space is not None
+        else HyperparameterSpace.default_xgb_classifier()
+    )
     return _fit_any_xgb_classifier(
         model_type=xgb.XGBClassifier,
         x_train=x_train,
@@ -354,7 +372,7 @@ def fit_xgb_rf_classifier(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None = None,
-    search_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace[xgb.XGBRFClassifier] | None = None,
     n_trials: int = 100,
     final_fit_data: FinalFitData = "train",
     metric: ClassificationEvalMetric = "log_loss",
@@ -375,9 +393,10 @@ def fit_xgb_rf_classifier(
         eval_set (Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None): Validation
             `(x, y)` pairs XGBoost monitors during each trial's fit. Defaults to
             None.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
+        search_space (HyperparameterSpace[xgb.XGBRFClassifier] | None): The
+            hyperparameter space used for optimization. If None, defaults to a
+            basic hyperparameter space (see below). Parameters it doesn't cover
+            are pinned to their library defaults.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (FinalFitData): Data the final model is fit on with the
             best hyperparameters: `"train"` (training data only), `"train_val"`
@@ -395,7 +414,7 @@ def fit_xgb_rf_classifier(
 
     Raises:
         ValueError: If `final_fit_data` includes `eval_set` data but none was
-            passed.
+            passed, or if `search_space` is for a different model type.
 
     Default Hyperparameter Space:
         If `search_space` is None, the following search space is used:
@@ -412,8 +431,9 @@ def fit_xgb_rf_classifier(
         }
         ```
 
-        These untuned parameters are pinned to their library defaults, so every
-        trial records them too:
+        Any hyperparameter a search space (default or passed) doesn't tune is
+        pinned to its library default, so every trial records the full model
+        configuration. For the default space, these are:
 
         ```python
         {
@@ -435,7 +455,11 @@ def fit_xgb_rf_classifier(
         }
         ```
     """
-    search_space = search_space or HyperparameterSpace.default_xgb_rf_classifier()
+    search_space = (
+        search_space.with_defaults()
+        if search_space is not None
+        else HyperparameterSpace.default_xgb_rf_classifier()
+    )
     return _fit_any_xgb_classifier(
         model_type=xgb.XGBRFClassifier,
         x_train=x_train,
@@ -458,7 +482,7 @@ def _fit_any_xgb_classifier(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
+    search_space: HyperparameterSpace[C],
     early_stopping_rounds: int | None,
     n_trials: int,
     final_fit_data: FinalFitData,
@@ -493,7 +517,7 @@ def _tune_and_fit_xgb(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
+    search_space: HyperparameterSpace[T],
     early_stopping_rounds: int | None,
     n_trials: int,
     final_fit_data: FinalFitData,
@@ -502,6 +526,11 @@ def _tune_and_fit_xgb(
 ) -> T:
     """Tune `model_type` with `score` (a fitted model -> its test score), then fit
     the final model with the best hyperparameters on `final_fit_data`."""
+    if search_space.model_type is not model_type:
+        raise ValueError(
+            f"search_space is for {search_space.model_type.__name__}, "
+            f"not {model_type.__name__}"
+        )
     if early_stopping_rounds is not None and not eval_set:
         warnings.warn(
             f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
@@ -546,7 +575,7 @@ def _fit_any_xgb_regressor(
     x_test: pl.DataFrame,
     y_test: pl.DataFrame,
     eval_set: Sequence[tuple[pl.DataFrame, pl.DataFrame]] | None,
-    search_space: HyperparameterSpace,
+    search_space: HyperparameterSpace[R],
     early_stopping_rounds: int | None,
     n_trials: int,
     final_fit_data: FinalFitData,

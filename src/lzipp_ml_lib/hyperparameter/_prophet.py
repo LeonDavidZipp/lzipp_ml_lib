@@ -37,7 +37,7 @@ def generate_fitted_model(
     y_test: dy.DataFrame[ProphetSchema],
     regressors: Sequence[str] | None = None,
     interval_width: float = 0.8,
-    search_space: HyperparameterSpace | None = None,
+    search_space: HyperparameterSpace[Prophet] | None = None,
     n_trials: int = 100,
     final_fit_data: ProphetFinalFitData = "train",
     metric: ProphetEvalMetric = "mape",
@@ -61,9 +61,10 @@ def generate_fitted_model(
             Defaults to None.
         interval_width (float): Width of the uncertainty intervals. Overrides any
             `interval_width` in `search_space`. Defaults to 0.95.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
+        search_space (HyperparameterSpace[Prophet] | None): The
+            hyperparameter space used for optimization. If None, defaults to a
+            basic hyperparameter space (see below). Parameters it doesn't cover
+            are pinned to their library defaults.
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
         final_fit_data (ProphetFinalFitData): Data the final model is fit on with
             the best hyperparameters: `"train"` (`y` only) or `"train_test"` (`y`
@@ -118,8 +119,9 @@ def generate_fitted_model(
         }
         ```
 
-        These untuned parameters are pinned to their library defaults, so every
-        trial records them too:
+        Any hyperparameter a search space (default or passed) doesn't tune is
+        pinned to its library default, so every trial records the full model
+        configuration. For the default space, these are:
 
         ```python
         {
@@ -135,10 +137,11 @@ def generate_fitted_model(
         }
         ```
     """
-    search_space = HyperparameterSpace(
-        search_space or HyperparameterSpace.default_prophet()
+    search_space = (
+        search_space.with_defaults()
+        if search_space is not None
+        else HyperparameterSpace.default_prophet()
     )
-    # the argument wins over the space, so trials record the width actually used
     search_space["interval_width"] = CategoricalDimension(
         "interval_width", [interval_width]
     )
