@@ -78,7 +78,10 @@ class FloatDimension(HyperparameterDimension):
     def values(self) -> Sequence[float]:
         step = self.step if self.step is not None else 1.0
         n = round((self.high - self.low) / step) + 1
-        return np.log(np.linspace(self.low, self.high, n)).tolist()
+        values = np.linspace(self.low, self.high, n)
+        if self.log:
+            return np.log(values).tolist()
+        return values.tolist()
 
 
 def _fixed(**defaults: CategoricalChoiceType) -> dict[str, HyperparameterDimension]:
