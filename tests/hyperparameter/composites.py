@@ -1,9 +1,14 @@
 import numpy as np
 import polars as pl
+from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
 from numpy.typing import NDArray
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import train_test_split  # type: ignore
+
+FIT_SETTINGS = settings(
+    max_examples=3, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+)
 
 
 @st.composite
@@ -22,19 +27,19 @@ def regression_train_test(
 
 
 @st.composite
-def regression_train_test_lfs(
+def regression_train_test_dfs(
     draw: st.DrawFn,
-) -> tuple[pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame]:
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Ordering: (x_train, x_test, y_train, y_test)"""
     x_train, x_test, y_train, y_test = draw(regression_train_test())
     return _x_lf(x_train), _x_lf(x_test), _y_lf(y_train), _y_lf(y_test)
 
 
 @st.composite
-def regression_train_val_test_lfs(
+def regression_train_val_test_dfs(
     draw: st.DrawFn,
 ) -> tuple[
-    pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame
+    pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame
 ]:
     """Ordering: (x_train, x_val, x_test, y_train, y_val, y_test)"""
     x_train, x_test, y_train, y_test = draw(regression_train_test())
@@ -90,9 +95,9 @@ def classification_train_test(
 
 
 @st.composite
-def classification_train_test_lfs(
+def classification_train_test_dfs(
     draw: st.DrawFn, min_classes: int = 2, max_classes: int = 30
-) -> tuple[pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame]:
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Ordering: (x_train, x_test, y_train, y_test)"""
     x_train, x_test, y_train, y_test = draw(
         classification_train_test(min_classes, max_classes)
@@ -101,10 +106,10 @@ def classification_train_test_lfs(
 
 
 @st.composite
-def classification_train_val_test_lfs(
+def classification_train_val_test_dfs(
     draw: st.DrawFn, min_classes: int = 2, max_classes: int = 30
 ) -> tuple[
-    pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame, pl.LazyFrame
+    pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame
 ]:
     """Ordering: (x_train, x_val, x_test, y_train, y_val, y_test)"""
     x_train, x_test, y_train, y_test = draw(
@@ -145,9 +150,9 @@ def _classification_data(
     return x, y  # type: ignore
 
 
-def _x_lf(x: NDArray[np.float64]) -> pl.LazyFrame:
-    return pl.LazyFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])])
+def _x_lf(x: NDArray[np.float64]) -> pl.DataFrame:
+    return pl.DataFrame(x, schema=[f"feat{i}" for i in range(x.shape[1])])
 
 
-def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.LazyFrame:
-    return pl.LazyFrame({"y": y})
+def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.DataFrame:
+    return pl.DataFrame({"y": y})
