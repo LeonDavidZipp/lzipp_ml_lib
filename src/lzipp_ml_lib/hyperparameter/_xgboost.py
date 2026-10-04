@@ -1,4 +1,3 @@
-import warnings
 from collections.abc import Callable, Sequence
 from typing import TypeVar
 
@@ -314,12 +313,6 @@ def _tune_and_fit_xgb(
         raise ValueError(
             f"search_space is for {search_space.model_type.__name__}, "
             f"not {model_type.__name__}"
-        )
-    if early_stopping_rounds is not None and not eval_set:
-        warnings.warn(
-            f"early_stopping_rounds={early_stopping_rounds} is ignored because no "
-            "eval_set was passed; trials train all n_estimators rounds",
-            stacklevel=4,
         )
 
     def objective(trial: rustuna.Trial) -> float:
