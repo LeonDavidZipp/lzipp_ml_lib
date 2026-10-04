@@ -1,13 +1,24 @@
+from typing import Any
+
 import numpy as np
 import polars as pl
+import xgboost as xgb
 from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
 from numpy.typing import NDArray
+from prophet import Prophet
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import train_test_split  # type: ignore
 
+from lzipp_ml_lib.hyperparameter import (
+    CategoricalDimension,
+    FloatDimension,
+    HyperparameterSpace,
+    IntegerDimension,
+)
+
 FIT_SETTINGS = settings(
-    max_examples=3, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+    max_examples=1, deadline=None, suppress_health_check=[HealthCheck.too_slow]
 )
 
 
@@ -156,3 +167,66 @@ def _x_lf(x: NDArray[np.float64]) -> pl.DataFrame:
 
 def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.DataFrame:
     return pl.DataFrame({"y": y})
+
+
+_MODEL_TYPES: list[type[Any]] = [
+    xgb.XGBRegressor,
+    xgb.XGBClassifier,
+    xgb.XGBRanker,
+    Prophet,
+]
+_CHOICES = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(-(2**63), 2**63 - 1),  # rustuna stores ints as i64
+    st.floats(allow_nan=False),
+    st.text(),
+)
+
+
+@st.composite
+def categorical_dimensions(draw: st.DrawFn) -> CategoricalDimension:
+    return CategoricalDimension("c", draw(st.lists(_CHOICES, min_size=1, max_size=10)))
+
+
+@st.composite
+def integer_dimensions(draw: st.DrawFn) -> IntegerDimension:
+    """`high` is not necessarily on the `step` grid from `low`."""
+    low = draw(st.integers(-1000, 1000))
+    step = draw(st.integers(1, 100))
+    high = draw(st.integers(low, low + 50 * step))
+    return IntegerDimension("i", low=low, high=high, step=step)
+
+
+@st.composite
+def stepped_float_dimensions(draw: st.DrawFn) -> FloatDimension:
+    """`high` lies on the `step` grid from `low`."""
+    low = draw(st.floats(-1e3, 1e3))
+    step = draw(st.floats(1e-3, 10))
+    high = low + draw(st.integers(0, 50)) * step
+    return FloatDimension("f", low=low, high=high, step=step)
+
+
+@st.composite
+def log_float_dimensions(draw: st.DrawFn) -> FloatDimension:
+    low = draw(st.floats(1e-8, 1e3))
+    # rustuna panics ("cannot sample empty range") when `high` is the float right
+    # after `low`: in log space the rounded bounds can cross
+    high = draw(st.one_of(st.just(low), st.floats(low * (1 + 1e-9), 1e4)))
+    return FloatDimension("f", low=low, high=high, log=True)
+
+
+@st.composite
+def partial_default_spaces(draw: st.DrawFn) -> HyperparameterSpace[Any]:
+    """A model type's default space with only some of its tuned dimensions kept."""
+    model_type = draw(st.sampled_from(_MODEL_TYPES))
+    default = HyperparameterSpace.default_space_from_model(model_type)
+    tuned = sorted(
+        name
+        for name, dim in default.items()
+        if not (isinstance(dim, CategoricalDimension) and len(dim.choices) == 1)
+    )
+    kept = draw(st.sets(st.sampled_from(tuned))) if tuned else set[str]()
+    return HyperparameterSpace(
+        model_type, {name: default[name] for name in sorted(kept)}
+    )

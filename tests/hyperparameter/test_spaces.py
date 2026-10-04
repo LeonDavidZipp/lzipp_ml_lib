@@ -1,11 +1,12 @@
 import inspect
 from collections.abc import Callable
 from typing import Any
-import numpy as np
 
+import numpy as np
 import pytest
 import rustuna
 import xgboost as xgb
+from hypothesis import given
 from prophet import Prophet
 
 from lzipp_ml_lib.hyperparameter import (
@@ -13,6 +14,13 @@ from lzipp_ml_lib.hyperparameter import (
     FloatDimension,
     HyperparameterSpace,
     IntegerDimension,
+)
+from tests.hyperparameter.composites import (
+    categorical_dimensions,
+    integer_dimensions,
+    log_float_dimensions,
+    partial_default_spaces,
+    stepped_float_dimensions,
 )
 
 
@@ -57,24 +65,32 @@ def _constructor_params(model_type: type[Any]) -> set[str]:
 # ------------------------------------------------------------------------------------ #
 
 
-def test_categorical_dimension_suggests_one_of_its_choices():
-    dim = CategoricalDimension("c", ["a", "b", None])
+@given(categorical_dimensions())
+def test_categorical_dimension_suggests_and_records_one_of_its_choices(
+    dim: CategoricalDimension,
+):
     suggested, recorded = _recorded_params(
         HyperparameterSpace(xgb.XGBRegressor, {"c": dim})
     )
     assert suggested["c"] in dim.choices
     assert recorded == suggested
-    assert dim.values() == ["a", "b", None]
+    assert dim.values() == dim.choices
 
 
-@pytest.mark.parametrize(("low", "high", "step"), [(1, 10, 1), (100, 1000, 50)])
-def test_integer_dimension_suggests_on_grid(low: int, high: int, step: int):
-    dim = IntegerDimension("i", low=low, high=high, step=step)
-    for _ in range(20):
-        suggested, _ = _recorded_params(
-            HyperparameterSpace(xgb.XGBRegressor, {"i": dim})
-        )
-        assert suggested["i"] in dim.values()
+@given(integer_dimensions())
+def test_integer_dimension_suggests_on_grid(dim: IntegerDimension):
+    suggested, _ = _recorded_params(HyperparameterSpace(xgb.XGBRegressor, {"i": dim}))
+    assert suggested["i"] in dim.values()
+
+
+@given(integer_dimensions())
+def test_integer_dimension_values_step_from_low_to_last_grid_point(
+    dim: IntegerDimension,
+):
+    values = dim.values()
+    assert values[0] == dim.low
+    assert values[-1] == dim.high - (dim.high - dim.low) % dim.step
+    assert all(b - a == dim.step for a, b in zip(values, values[1:], strict=False))
 
 
 @pytest.mark.parametrize(("low", "high", "step"), [(1, 10, 1), (100, 1000, 50)])
@@ -82,23 +98,43 @@ def test_integer_dimension_values_include_both_bounds(low: int, high: int, step:
     values = IntegerDimension("i", low=low, high=high, step=step).values()
     assert values[0] == low
     assert values[-1] == high
-    assert all(b - a == step for a, b in zip(values, values[1:], strict=False))
 
 
-def test_float_dimension_suggests_within_bounds():
-    dim = FloatDimension("f", low=1e-3, high=0.3, log=True)
-    for _ in range(20):
-        suggested, _ = _recorded_params(
-            HyperparameterSpace(xgb.XGBRegressor, {"f": dim})
-        )
-        assert 1e-3 <= suggested["f"] <= 0.3
+@given(log_float_dimensions())
+def test_float_dimension_suggests_within_bounds(dim: FloatDimension):
+    suggested, _ = _recorded_params(HyperparameterSpace(xgb.XGBRegressor, {"f": dim}))
+    assert dim.low <= suggested["f"] <= dim.high
+
+
+@given(stepped_float_dimensions())
+def test_float_dimension_suggests_on_grid(dim: FloatDimension):
+    suggested, _ = _recorded_params(HyperparameterSpace(xgb.XGBRegressor, {"f": dim}))
+    assert suggested["f"] == pytest.approx(
+        min(dim.values(), key=lambda v: abs(v - suggested["f"]))
+    )
+
+
+@given(stepped_float_dimensions())
+def test_float_dimension_values_step_from_low_to_high(dim: FloatDimension):
+    assert dim.step is not None
+    values = dim.values()
+    assert values[0] == pytest.approx(dim.low)
+    assert values[-1] == pytest.approx(dim.high)
+    assert np.diff(values) == pytest.approx(dim.step)
+
+
+@given(stepped_float_dimensions().filter(lambda d: d.low > 0))
+def test_float_dimension_log_values_are_log_of_linear_values(dim: FloatDimension):
+    linear = dim.values()
+    dim.log = True
+    assert dim.values() == pytest.approx(np.log(linear).tolist())
 
 
 def test_float_dimension_values_include_both_bounds():
     values = FloatDimension("f", low=0.1, high=0.5, step=0.1).values()
     assert values == pytest.approx([0.1, 0.2, 0.3, 0.4, 0.5])
-    
-    
+
+
 def test_float_dimension_log_values_include_both_bounds():
     values = FloatDimension("f", low=0.1, high=0.5, step=0.1, log=True).values()
     expected_values = np.log(np.array([0.1, 0.2, 0.3, 0.4, 0.5])).tolist()
@@ -110,38 +146,52 @@ def test_float_dimension_log_values_include_both_bounds():
 # ------------------------------------------------------------------------------------ #
 
 
-def test_space_suggests_and_records_every_dimension():
-    space = HyperparameterSpace.default_xgb_regressor()
+@given(partial_default_spaces())
+def test_space_suggests_and_records_every_dimension(space: HyperparameterSpace[Any]):
     suggested, recorded = _recorded_params(space)
     assert suggested.keys() == space.keys()
     assert recorded == suggested
 
 
-def test_value_spaces_cover_every_dimension():
-    space = HyperparameterSpace.default_xgb_regressor()
+@given(partial_default_spaces())
+def test_value_spaces_cover_every_dimension(space: HyperparameterSpace[Any]):
     value_spaces = space.value_spaces()
     assert value_spaces.keys() == space.keys()
     for name, dim in space.items():
         assert value_spaces[name] == dim.values()
 
 
-def test_with_defaults_fills_missing_and_keeps_given_dimensions():
-    max_depth = IntegerDimension("max_depth", low=2, high=4)
-    space = HyperparameterSpace(xgb.XGBRegressor, {"max_depth": max_depth})
+@given(partial_default_spaces())
+def test_with_defaults_fills_missing_and_keeps_given_dimensions(
+    space: HyperparameterSpace[Any],
+):
+    given_dims = dict(space)
     full = space.with_defaults()
 
     assert full is not space
-    assert list(space) == ["max_depth"]  # original untouched
-    assert full.model_type is xgb.XGBRegressor
-    assert full["max_depth"] is max_depth
+    assert dict(space) == given_dims  # original untouched
+    assert full.model_type is space.model_type
+    assert set(full) == set(space) | set(
+        HyperparameterSpace(space.model_type).with_defaults()
+    )
+    for name, dim in given_dims.items():
+        assert full[name] is dim
+
+
+def test_with_defaults_pins_library_defaults():
+    max_depth = IntegerDimension("max_depth", low=2, high=4)
+    full = HyperparameterSpace(
+        xgb.XGBRegressor, {"max_depth": max_depth}
+    ).with_defaults()
     pinned = _pinned(full)
     assert "max_depth" not in pinned
     assert pinned["learning_rate"] == 0.3
     assert pinned["n_estimators"] == 100
 
 
-def test_with_defaults_is_idempotent():
-    once = HyperparameterSpace(xgb.XGBRegressor).with_defaults()
+@given(partial_default_spaces())
+def test_with_defaults_is_idempotent(space: HyperparameterSpace[Any]):
+    once = space.with_defaults()
     twice = once.with_defaults()
     assert twice.keys() == once.keys()
     assert _pinned(twice) == _pinned(once)
