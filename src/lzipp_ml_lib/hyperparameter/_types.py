@@ -21,12 +21,14 @@ from sklearn.metrics import (
 )
 
 M = TypeVar("M", bound=xgb.XGBModel | Prophet)
-RegressionEvalMetric = Literal["mape", "mae", "rmse", "mse", "r2"]
+ProphetEvalMetric = Literal["mape", "mae", "rmse", "mse"]
+RegressionEvalMetric = ProphetEvalMetric | Literal["r2"]
 ClassificationEvalMetric = Literal[
     "accuracy", "precision", "recall", "f1_score", "roc_auc", "log_loss"
 ]
 EvalMetric = RegressionEvalMetric | ClassificationEvalMetric
 FinalFitData = Literal["train", "train_val", "train_val_test"]
+ProphetFinalFitData = FinalFitData | Literal["train_test"]
 
 
 METRICS: dict[EvalMetric, Any] = {

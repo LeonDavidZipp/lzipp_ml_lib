@@ -12,8 +12,8 @@ from rustuna.trial import TrialState
 from ._space import HyperparameterSpace
 from ._types import (
     DIRECTIONS,
-    FinalFitData,
     ProphetEvalMetric,
+    ProphetFinalFitData,
     RegressionFitResult,
     RegressionMetrics,
 )
@@ -39,7 +39,7 @@ def generate_fitted_model(
     interval_width: float = 0.95,
     search_space: HyperparameterSpace | None = None,
     n_trials: int = 100,
-    final_fit_data: FinalFitData = "train",
+    final_fit_data: ProphetFinalFitData = "train",
     metric: ProphetEvalMetric = "mape",
     horizon: str | pd.Timedelta = "180 days",
 ) -> RegressionFitResult[Prophet]:
@@ -48,14 +48,14 @@ def generate_fitted_model(
 
     Runs `n_trials` hyperparameter trials, each scored with Prophet's time series
     cross validation on `y` (see below), then fits the final model with the best
-    hyperparameters on `y` and scores it on `y_test`.
+    hyperparameters on the data selected by `final_fit_data` and scores it on
+    `y_test`.
 
     Args:
         y (dy.DataFrame[ProphetSchema]): Training data with 'ds', 'y' and any
             regressor columns.
-        y_test (pl.DataFrame): Test data following `y` in time, with 'ds', 'y' and
-            the same regressor columns. Only used for the returned metrics, never
-            during tuning.
+        y_test (dy.DataFrame[ProphetSchema]): Test data following `y` in time, with
+            'ds', 'y' and the same regressor columns. Never used during tuning.
         regressors (Sequence[str] | None): Columns of `y` added as extra
             regressors. If None, every column except 'ds' and 'y' is used.
             Defaults to None.
@@ -65,8 +65,13 @@ def generate_fitted_model(
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
         n_trials (int): Number of hyperparameter trials. Defaults to 100.
-        final_fit_data (FinalFitData): Not used yet; the final model is always fit
-            on `y`. Defaults to `"train"`.
+        final_fit_data (ProphetFinalFitData): Data the final model is fit on with
+            the best hyperparameters: `"train"` (`y` only) or `"train_test"` (`y`
+            followed by `y_test`; the returned test metrics are then in-sample).
+            Since Prophet validates via cross validation within `y` and takes no
+            separate validation set, `"train_val"` behaves exactly like `"train"`
+            and `"train_val_test"` exactly like `"train_test"`. Defaults to
+            `"train"`.
         metric (ProphetEvalMetric): Metric the trials are minimized on, one of
             `"mape"`, `"mae"`, `"rmse"` or `"mse"`. Defaults to `"mape"`.
         horizon (str | pd.Timedelta): How far ahead each cross validation fold
@@ -78,7 +83,9 @@ def generate_fitted_model(
 
     Raises:
         ValueError: If `y` is too short for cross validation with the given
-            `horizon`, or if no trial produced performance metrics.
+            `horizon`, if no trial produced performance metrics, or if
+            `final_fit_data` includes `y_test` and `y_test` doesn't start after
+            `y` ends.
 
     Cross Validation:
         Each fold trains on all data before a cutoff and forecasts the following
@@ -148,8 +155,9 @@ def generate_fitted_model(
             "computed for any hyperparameter combination."
         )
 
+    final_df = _join_final_fit_data(final_fit_data, y, y_test, regressors)
     best_model = _build_model(study.best_trial.params, regressors, interval_width).fit(
-        y_pd
+        final_df.to_pandas()
     )
     y_pred = best_model.predict(y_test.select("ds", *regressors).to_pandas())["yhat"]
     return RegressionFitResult(
@@ -169,6 +177,27 @@ def _get_regressors(y: pl.DataFrame, regressors: Sequence[str] | None) -> list[s
         if regressors is not None
         else [col for col in y.columns if col not in ["ds", "y"]]
     )
+
+
+def _join_final_fit_data(
+    final_fit_data: ProphetFinalFitData,
+    y: pl.DataFrame,
+    y_test: pl.DataFrame,
+    regressors: Sequence[str],
+) -> pl.DataFrame:
+    """Stack the data the final model is fit on, in train -> test order.
+
+    Raises:
+        ValueError: If `y_test` doesn't start after `y` ends.
+    """
+    cols = ["ds", "y", *regressors]
+    if final_fit_data in ("train", "train_val"):
+        return y.select(cols)
+    if y_test["ds"].min() <= y["ds"].max():  # type: ignore
+        raise ValueError(
+            f"final_fit_data='{final_fit_data}' needs y_test to start after y ends"
+        )
+    return pl.concat([y.select(cols), y_test.select(cols)])
 
 
 def _build_model(
