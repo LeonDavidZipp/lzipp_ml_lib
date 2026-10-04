@@ -13,7 +13,7 @@ from lzipp_ml_lib.timeseries._features import (
     _maybe_drop_ts,  # type: ignore
 )
 
-from ._composites import DURATION_SECONDS, duration_like_text, duration_parts
+from .composites import DURATION_SECONDS, duration_like_text, duration_parts
 
 # ------------------------------------------------------------------------------------ #
 #                                   _approx_seconds                                    #

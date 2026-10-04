@@ -1,7 +1,7 @@
 import math
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 import dataframely as dy
 import polars as pl
@@ -10,15 +10,17 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from lzipp_ml_lib import TimeseriesFeatures, TimeseriesSchema
+from lzipp_ml_lib import RollingStat, TimeseriesFeatures, TimeseriesSchema
 
-from ._composites import (
+from .composites import (
     UNITS,
     daily_with_calendar_lag,
     grid_with_gaps,
     lag_pairs,
     messy_rows,
+    rolling_windows,
     shift_back,
+    time_string,
 )
 
 # ------------------------------------------------------------------------------------ #
@@ -498,6 +500,21 @@ def test_lag_pairs_combine_values_exactly_n_units_earlier(
             )
             expected.append(None if va is None or vb is None else combine(va, vb))
         assert df[name].to_list() == expected, name
+
+
+# ------------------------------------------------------------------------------------ #
+#                                       rolling                                        #
+# ------------------------------------------------------------------------------------ #
+
+
+@given(
+    windows=rolling_windows(),
+    stats=st.lists(st.sampled_from(get_args(RollingStat)), min_size=1, unique=True).map(
+        tuple
+    ),
+    horizon=time_string(),
+)
+def test_rolling(): ...
 
 
 # ------------------------------------------------------------------------------------ #
