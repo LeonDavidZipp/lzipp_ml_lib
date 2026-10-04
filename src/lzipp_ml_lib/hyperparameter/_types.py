@@ -119,11 +119,15 @@ class ClassificationMetrics:
 
 @dataclass
 class RegressionFitResult(Generic[M]):
+    """The tuned final model and the metrics of `model` on the test data."""
+
     model: M
     metrics: RegressionMetrics
 
 
 @dataclass
 class ClassificationFitResult(Generic[M]):
+    """The tuned final model and the metrics of `model` on the test data."""
+
     model: M
     metrics: ClassificationMetrics
