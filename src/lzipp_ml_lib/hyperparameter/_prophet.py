@@ -9,7 +9,7 @@ from prophet import Prophet
 from prophet.diagnostics import cross_validation, performance_metrics
 from rustuna.trial import TrialState
 
-from ._space import HyperparameterSpace
+from ._space import CategoricalDimension, HyperparameterSpace
 from ._types import (
     DIRECTIONS,
     ProphetEvalMetric,
@@ -36,7 +36,7 @@ def generate_fitted_model(
     y: dy.DataFrame[ProphetSchema],
     y_test: dy.DataFrame[ProphetSchema],
     regressors: Sequence[str] | None = None,
-    interval_width: float = 0.95,
+    interval_width: float = 0.8,
     search_space: HyperparameterSpace | None = None,
     n_trials: int = 100,
     final_fit_data: ProphetFinalFitData = "train",
@@ -59,8 +59,8 @@ def generate_fitted_model(
         regressors (Sequence[str] | None): Columns of `y` added as extra
             regressors. If None, every column except 'ds' and 'y' is used.
             Defaults to None.
-        interval_width (float): Width of the uncertainty intervals. Defaults to
-            0.95.
+        interval_width (float): Width of the uncertainty intervals. Overrides any
+            `interval_width` in `search_space`. Defaults to 0.95.
         search_space (HyperparameterSpace | None): The hyperparameter space used
             for optimization. If None, defaults to a basic hyperparameter space (see
             below).
@@ -117,15 +117,38 @@ def generate_fitted_model(
             ),
         }
         ```
+
+        These untuned parameters are pinned to their library defaults, so every
+        trial records them too:
+
+        ```python
+        {
+            "growth": "linear",
+            "n_changepoints": 25,
+            "yearly_seasonality": "auto",
+            "weekly_seasonality": "auto",
+            "daily_seasonality": "auto",
+            "mcmc_samples": 0,
+            "uncertainty_samples": 1000,
+            "scaling": "absmax",
+            "interval_width": 0.8,
+        }
+        ```
     """
-    search_space = search_space or HyperparameterSpace.default_prophet()
+    search_space = HyperparameterSpace(
+        search_space or HyperparameterSpace.default_prophet()
+    )
+    # the argument wins over the space, so trials record the width actually used
+    search_space["interval_width"] = CategoricalDimension(
+        "interval_width", [interval_width]
+    )
     horizon = pd.Timedelta(horizon)
     regressors = _get_regressors(y, regressors)
     y_pd = y.to_pandas()
 
     def objective(trial: rustuna.Trial) -> float:
         params = {key: val.suggest(trial) for key, val in search_space.items()}
-        model = _build_model(params, regressors, interval_width)
+        model = _build_model(params, regressors)
         model.fit(y_pd)  # type: ignore
 
         initial, period = _cv_windows(model, horizon)
@@ -156,7 +179,7 @@ def generate_fitted_model(
         )
 
     final_df = _join_final_fit_data(final_fit_data, y, y_test, regressors)
-    best_model = _build_model(study.best_trial.params, regressors, interval_width).fit(
+    best_model = _build_model(study.best_trial.params, regressors).fit(
         final_df.to_pandas()
     )
     y_pred = best_model.predict(y_test.select("ds", *regressors).to_pandas())["yhat"]
@@ -200,10 +223,8 @@ def _join_final_fit_data(
     return pl.concat([y.select(cols), y_test.select(cols)])
 
 
-def _build_model(
-    params: dict[str, Any], regressors: Sequence[str], interval_width: float
-) -> Prophet:
-    model = Prophet(**params, interval_width=interval_width)  # type: ignore
+def _build_model(params: dict[str, Any], regressors: Sequence[str]) -> Prophet:
+    model = Prophet(**params)  # type: ignore
     for reg in regressors:
         model = model.add_regressor(reg)  # type: ignore
     return model

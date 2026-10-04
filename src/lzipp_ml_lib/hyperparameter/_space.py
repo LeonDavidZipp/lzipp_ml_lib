@@ -75,6 +75,27 @@ class FloatDimension(HyperparameterDimension):
         return np.log(np.linspace(self.low, self.high, n)).tolist()
 
 
+def _fixed(**defaults: CategoricalChoiceType) -> dict[str, HyperparameterDimension]:
+    """Pin parameters to one value each, so trials still record them in their params."""
+    return {
+        name: CategoricalDimension(name, [value]) for name, value in defaults.items()
+    }
+
+
+_XGB_TREE_DEFAULTS = _fixed(
+    booster="gbtree",
+    tree_method="hist",
+    grow_policy="depthwise",
+    max_leaves=0,
+    max_bin=256,
+    max_delta_step=0.0,
+    sampling_method="uniform",
+    colsample_bylevel=1.0,
+    max_cat_to_onehot=4,
+    max_cat_threshold=64,
+)
+
+
 class HyperparameterSpace(dict[str, HyperparameterDimension]):
     """Hyperparameter space containing the parameter names and the dimensions"""
 
@@ -133,6 +154,8 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
                 "reg_lambda": FloatDimension(
                     "reg_lambda", low=1e-8, high=100.0, log=True
                 ),
+                **_XGB_TREE_DEFAULTS,
+                **_fixed(colsample_bynode=1.0, num_parallel_tree=1),
             }
         )
 
@@ -151,6 +174,14 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
                 ),
                 "min_child_weight": IntegerDimension(
                     "min_child_weight", low=1, high=10
+                ),
+                **_XGB_TREE_DEFAULTS,
+                **_fixed(
+                    learning_rate=1.0,
+                    reg_lambda=1e-5,
+                    reg_alpha=0.0,
+                    gamma=0.0,
+                    colsample_bytree=1.0,
                 ),
             }
         )
@@ -193,6 +224,18 @@ class HyperparameterSpace(dict[str, HyperparameterDimension]):
                 ),
                 "changepoint_range": FloatDimension(
                     "changepoint_range", low=0.8, high=0.95
+                ),
+                # Prophet defaults; `changepoints` / `holidays` aren't scalar choices.
+                **_fixed(
+                    growth="linear",
+                    n_changepoints=25,
+                    yearly_seasonality="auto",
+                    weekly_seasonality="auto",
+                    daily_seasonality="auto",
+                    mcmc_samples=0,
+                    uncertainty_samples=1000,
+                    scaling="absmax",
+                    interval_width=0.8,
                 ),
             }
         )

@@ -98,6 +98,26 @@ def fit_xgb_regressor(
             "reg_lambda": FloatDimension("reg_lambda", low=1e-8, high=100.0, log=True),
         }
         ```
+
+        These untuned parameters are pinned to their library defaults, so every
+        trial records them too:
+
+        ```python
+        {
+            "booster": "gbtree",
+            "tree_method": "hist",
+            "grow_policy": "depthwise",
+            "max_leaves": 0,
+            "max_bin": 256,
+            "max_delta_step": 0.0,
+            "sampling_method": "uniform",
+            "colsample_bylevel": 1.0,
+            "max_cat_to_onehot": 4,
+            "max_cat_threshold": 64,
+            "colsample_bynode": 1.0,
+            "num_parallel_tree": 1,
+        }
+        ```
     """
     search_space = search_space or HyperparameterSpace.default_xgb_regressor()
     return _fit_any_xgb_regressor(
@@ -174,6 +194,29 @@ def fit_xgb_rf_regressor(
             "subsample": FloatDimension("subsample", low=0.5, high=0.95),
             "colsample_bynode": FloatDimension("colsample_bynode", low=0.4, high=0.9),
             "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+        }
+        ```
+
+        These untuned parameters are pinned to their library defaults, so every
+        trial records them too:
+
+        ```python
+        {
+            "booster": "gbtree",
+            "tree_method": "hist",
+            "grow_policy": "depthwise",
+            "max_leaves": 0,
+            "max_bin": 256,
+            "max_delta_step": 0.0,
+            "sampling_method": "uniform",
+            "colsample_bylevel": 1.0,
+            "max_cat_to_onehot": 4,
+            "max_cat_threshold": 64,
+            "learning_rate": 1.0,
+            "reg_lambda": 1e-5,
+            "reg_alpha": 0.0,
+            "gamma": 0.0,
+            "colsample_bytree": 1.0,
         }
         ```
     """
@@ -268,6 +311,26 @@ def fit_xgb_classifier(
             "reg_lambda": FloatDimension("reg_lambda", low=1e-8, high=100.0, log=True),
         }
         ```
+
+        These untuned parameters are pinned to their library defaults, so every
+        trial records them too:
+
+        ```python
+        {
+            "booster": "gbtree",
+            "tree_method": "hist",
+            "grow_policy": "depthwise",
+            "max_leaves": 0,
+            "max_bin": 256,
+            "max_delta_step": 0.0,
+            "sampling_method": "uniform",
+            "colsample_bylevel": 1.0,
+            "max_cat_to_onehot": 4,
+            "max_cat_threshold": 64,
+            "colsample_bynode": 1.0,
+            "num_parallel_tree": 1,
+        }
+        ```
     """
     search_space = search_space or HyperparameterSpace.default_xgb_classifier()
     return _fit_any_xgb_classifier(
@@ -346,6 +409,29 @@ def fit_xgb_rf_classifier(
             "subsample": FloatDimension("subsample", low=0.5, high=0.95),
             "colsample_bynode": FloatDimension("colsample_bynode", low=0.4, high=0.9),
             "min_child_weight": IntegerDimension("min_child_weight", low=1, high=10),
+        }
+        ```
+
+        These untuned parameters are pinned to their library defaults, so every
+        trial records them too:
+
+        ```python
+        {
+            "booster": "gbtree",
+            "tree_method": "hist",
+            "grow_policy": "depthwise",
+            "max_leaves": 0,
+            "max_bin": 256,
+            "max_delta_step": 0.0,
+            "sampling_method": "uniform",
+            "colsample_bylevel": 1.0,
+            "max_cat_to_onehot": 4,
+            "max_cat_threshold": 64,
+            "learning_rate": 1.0,
+            "reg_lambda": 1e-5,
+            "reg_alpha": 0.0,
+            "gamma": 0.0,
+            "colsample_bytree": 1.0,
         }
         ```
     """
