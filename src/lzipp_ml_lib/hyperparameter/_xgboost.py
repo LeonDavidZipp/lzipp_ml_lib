@@ -2,27 +2,15 @@ import warnings
 from collections.abc import Callable, Sequence
 from typing import TypeVar
 
-import dataframely as dy
 import polars as pl
 import rustuna
 import xgboost as xgb
 from rustuna.study import StudyDirection
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    log_loss,
-    mean_absolute_error,
-    mean_absolute_percentage_error,
-    mean_squared_error,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-    root_mean_squared_error,
-)
 
 from ._space import HyperparameterSpace
 from ._types import (
+    DIRECTIONS,
+    METRICS,
     ClassificationEvalMetric,
     ClassificationFitResult,
     ClassificationMetrics,
@@ -377,105 +365,6 @@ def fit_xgb_rf_classifier(
     )
 
 
-class ProphetSchema(dy.Schema):
-    ds = dy.Datetime(nullable=False, unique=True)
-    y = dy.Float(nullable=False, allow_inf=False, allow_nan=False)
-
-    @dy.rule()
-    def min_data_points(cls) -> pl.Expr:
-        return pl.col("ds").unique().len() >= 100
-
-    @dy.rule()
-    def is_sorted(cls) -> pl.Expr:
-        return pl.col("ds").is_sorted(descending=False)
-
-
-def fit_prophet(
-    df: dy.DataFrame[ProphetSchema],
-    search_space: HyperparameterSpace | None = None,
-    cross_validation_threshold: int = 1000,
-):
-    """
-    Fits a prophet model.
-
-    Args:
-        df (dy.DataFrame[ProphetSchema]): A prophet-typical dataframe containing
-            'ds' and 'y' columns.
-        search_space (HyperparameterSpace | None): The hyperparameter space used
-            for optimization. If None, defaults to a basic hyperparameter space (see
-            below).
-        cross_validation_threshold (int): Number of datapoints needed to perform cross
-            validation instead of a train-test-split. Defaults to 1000.
-
-    Returns:
-        HyperparameterFitResult[Prophet]: The fitted model and associated metrics.
-
-    Default Hyperparameter Space:
-        If `search_space` is None, the following search space is used:
-
-        ```python
-        {
-            "changepoint_prior_scale": FloatDimension(
-                "changepoint_prior_scale", low=0.001, high=0.5, log=True
-            ),
-            "seasonality_prior_scale": FloatDimension(
-                "seasonality_prior_scale", low=0.01, high=10.0, log=True
-            ),
-            "holidays_prior_scale": FloatDimension(
-                "holidays_prior_scale", low=0.01, high=10.0, log=True
-            ),
-            "seasonality_mode": CategoricalDimension(
-                "seasonality_mode", choices=["additive", "multiplicative"]
-            ),
-            "changepoint_range": FloatDimension(
-                "changepoint_range", low=0.8, high=0.95
-            ),
-        }
-        ```
-    """
-    # space = search_space or HyperparameterSpace.default_prophet()
-
-    # def objective(trial: rustuna.Trial) -> float:
-    #     params = {key: val.suggest(trial) for key, val in space.items()}
-    #     model = Prophet(**params)  # type: ignore
-    #     model.fit(df.to_pandas())
-
-    #     # TODO: implement
-    #     return 0.0
-
-    # rustuna.create_study().optimize(objective, n_trials=50)
-    # return HyperparameterFitResult(model=Prophet(), metrics=Metrics(mape=0.0))
-    ...
-
-
-_METRICS = {
-    "mape": mean_absolute_percentage_error,
-    "mae": mean_absolute_error,
-    "rmse": root_mean_squared_error,
-    "mse": mean_squared_error,
-    "r2": r2_score,
-    "accuracy": accuracy_score,
-    "precision": precision_score,
-    "recall": recall_score,
-    "f1_score": f1_score,
-    "roc_auc": roc_auc_score,
-    "log_loss": log_loss,
-}
-_DIRECTIONS = {
-    "mape": StudyDirection.MINIMIZE,
-    "mae": StudyDirection.MINIMIZE,
-    "rmse": StudyDirection.MINIMIZE,
-    "mse": StudyDirection.MINIMIZE,
-    "r2": StudyDirection.MAXIMIZE,
-    "accuracy": StudyDirection.MAXIMIZE,
-    "precision": StudyDirection.MAXIMIZE,
-    "recall": StudyDirection.MAXIMIZE,
-    "f1_score": StudyDirection.MAXIMIZE,
-    "roc_auc": StudyDirection.MAXIMIZE,
-    "log_loss": StudyDirection.MINIMIZE,
-}
-
-
 def _fit_any_xgb_classifier(
     model_type: type[C],
     x_train: pl.DataFrame,
@@ -504,7 +393,7 @@ def _fit_any_xgb_classifier(
         n_trials=n_trials,
         final_fit_data=final_fit_data,
         score=score,
-        direction=_DIRECTIONS[metric],
+        direction=DIRECTIONS[metric],
     )
     return ClassificationFitResult(
         best_model, _classification_metrics(best_model, x_test, y_test)
@@ -578,7 +467,7 @@ def _fit_any_xgb_regressor(
     metric: RegressionEvalMetric,
 ) -> RegressionFitResult[R]:
     def score(model: R) -> float:
-        return float(_METRICS[metric](y_test, model.predict(x_test)))
+        return float(METRICS[metric](y_test, model.predict(x_test)))
 
     best_model = _tune_and_fit_xgb(
         model_type=model_type,
@@ -592,7 +481,7 @@ def _fit_any_xgb_regressor(
         n_trials=n_trials,
         final_fit_data=final_fit_data,
         score=score,
-        direction=_DIRECTIONS[metric],
+        direction=DIRECTIONS[metric],
     )
     return RegressionFitResult(
         best_model, RegressionMetrics.calculate(y_test, best_model.predict(x_test))

@@ -5,6 +5,7 @@ import numpy as np
 import xgboost as xgb
 from numpy.typing import ArrayLike
 from prophet import Prophet
+from rustuna.study import StudyDirection
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -21,10 +22,40 @@ from sklearn.metrics import (
 
 M = TypeVar("M", bound=xgb.XGBModel | Prophet)
 RegressionEvalMetric = Literal["mape", "mae", "rmse", "mse", "r2"]
-FinalFitData = Literal["train", "train_val", "train_val_test"]
 ClassificationEvalMetric = Literal[
     "accuracy", "precision", "recall", "f1_score", "roc_auc", "log_loss"
 ]
+EvalMetric = RegressionEvalMetric | ClassificationEvalMetric
+FinalFitData = Literal["train", "train_val", "train_val_test"]
+
+
+METRICS: dict[EvalMetric, Any] = {
+    "mape": mean_absolute_percentage_error,
+    "mae": mean_absolute_error,
+    "rmse": root_mean_squared_error,
+    "mse": mean_squared_error,
+    "r2": r2_score,
+    "accuracy": accuracy_score,
+    "precision": precision_score,
+    "recall": recall_score,
+    "f1_score": f1_score,
+    "roc_auc": roc_auc_score,
+    "log_loss": log_loss,
+}
+
+DIRECTIONS: dict[EvalMetric, Any] = {
+    "mape": StudyDirection.MINIMIZE,
+    "mae": StudyDirection.MINIMIZE,
+    "rmse": StudyDirection.MINIMIZE,
+    "mse": StudyDirection.MINIMIZE,
+    "r2": StudyDirection.MAXIMIZE,
+    "accuracy": StudyDirection.MAXIMIZE,
+    "precision": StudyDirection.MAXIMIZE,
+    "recall": StudyDirection.MAXIMIZE,
+    "f1_score": StudyDirection.MAXIMIZE,
+    "roc_auc": StudyDirection.MAXIMIZE,
+    "log_loss": StudyDirection.MINIMIZE,
+}
 
 
 @dataclass
