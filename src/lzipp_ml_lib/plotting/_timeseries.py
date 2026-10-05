@@ -2,13 +2,21 @@ from collections.abc import Sequence
 
 import matplotlib.dates as mdates
 import polars as pl
-from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.collections import PolyCollection
 from matplotlib.figure import Figure
 from matplotlib.ticker import PercentFormatter
 from statsmodels.graphics.tsaplots import plot_acf  # type: ignore
 
-from ._style import ACCENT, ACCENT_WASH, BASELINE, INK_SECONDARY, panel_grid, styled
+from ._style import (
+    ACCENT,
+    ACCENT_WASH,
+    BASELINE,
+    INK_SECONDARY,
+    figure_and_axes,
+    panel_grid,
+    styled,
+)
 from ._utils import PolarsFrame, ensure_collected, numeric_columns
 
 
@@ -42,11 +50,15 @@ def plot_timeseries_grid(
 
 @styled
 def plot_missing_values(
-    data: PolarsFrame, columns: Sequence[str] | None = None
+    data: PolarsFrame,
+    columns: Sequence[str] | None = None,
+    *,
+    ax: Axes | None = None,
 ) -> Figure:
     """Plots the percentage of missing values per column, most missing on top.
 
-    `columns` restricts the plot to these columns; by default all are used.
+    `columns` restricts the plot to these columns; by default all are used. With
+    `ax`, it's drawn there.
     """
     df = ensure_collected(data, columns)
     missing = (
@@ -57,8 +69,7 @@ def plot_missing_values(
     )
     pct = missing["pct"].to_list()
 
-    fig = plt.figure(figsize=(8, max(2.5, 0.32 * len(pct) + 1)), layout="constrained")
-    ax = fig.add_subplot()  # type: ignore
+    fig, ax = figure_and_axes(ax, (8, max(2.5, 0.32 * len(pct) + 1)))
     bars = ax.barh(missing["column"].to_list(), pct, height=0.6, color=ACCENT)  # type: ignore
     ax.bar_label(  # type: ignore
         bars,
@@ -68,7 +79,7 @@ def plot_missing_values(
         color=INK_SECONDARY,
     )
     ax.set_xlim(0, max(max(pct, default=0), 1) * 1.15)
-    ax.xaxis.set_major_formatter(PercentFormatter(decimals=0))  # type: ignore
+    ax.xaxis.set_major_formatter(PercentFormatter(decimals=None))  # type: ignore
     ax.grid(axis="y", visible=False)  # type: ignore
     ax.grid(axis="x", visible=True)  # type: ignore
     ax.margins(y=0.02)  # type: ignore
@@ -78,15 +89,18 @@ def plot_missing_values(
 
 @styled
 def plot_autocorrelation(
-    data: PolarsFrame, target_col: str = "y", lags: int = 50
+    data: PolarsFrame,
+    target_col: str = "y",
+    lags: int = 50,
+    *,
+    ax: Axes | None = None,
 ) -> Figure:
     """Plots the autocorrelation function (ACF) for the target variable, with its
-    95% confidence band."""
+    95% confidence band. With `ax`, it's drawn there."""
     df = ensure_collected(data)
     series = df.get_column(target_col).drop_nulls().to_numpy()
 
-    fig = plt.figure(figsize=(12, 3.6), layout="constrained")
-    ax = fig.add_subplot()  # type: ignore
+    fig, ax = figure_and_axes(ax, (12, 3.6))
     plot_acf(
         series,
         lags=lags,

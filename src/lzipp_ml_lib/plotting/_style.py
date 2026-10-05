@@ -4,12 +4,14 @@ from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
 import numpy as np
+import polars as pl
 from cycler import cycler
 from matplotlib import font_manager
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -123,3 +125,65 @@ def panel_grid(
     for ax in flat[n_panels:]:
         ax.set_visible(False)
     return fig, flat[:n_panels]  # type: ignore
+
+
+def figure_and_axes(
+    ax: Axes | None, figsize: tuple[float, float]
+) -> tuple[Figure, Axes]:
+    """`ax` and the figure it lives on, or a new single-axes figure if `ax` is None.
+
+    A passed `ax` was created outside the style, so its axes-level look (surface,
+    spines, grid, ticks) is applied here; everything drawn on it afterwards picks
+    up the style anyway.
+    """
+    if ax is not None:
+        _restyle_axes(ax)
+        return ax.get_figure(root=True), ax  # type: ignore
+    fig = plt.figure(figsize=figsize, layout="constrained")
+    return fig, fig.add_subplot()  # type: ignore
+
+
+def _restyle_axes(ax: Axes) -> None:
+    ax.set_facecolor(SURFACE)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(BASELINE)
+    ax.spines["bottom"].set_linewidth(0.8)  # type: ignore
+    # set the grid's look on both axes, so whichever one a plot turns on matches
+    ax.grid(axis="both", color=GRID, linewidth=0.8, linestyle="-")  # type: ignore
+    ax.xaxis.grid(False)  # type: ignore
+    ax.set_axisbelow(True)
+    for label in (ax.xaxis.label, ax.yaxis.label):
+        label.set(fontfamily=FONTS, fontsize=9, color=INK_SECONDARY)  # type: ignore
+    ax.tick_params(  # type: ignore
+        length=0,
+        pad=6,
+        colors=BASELINE,
+        labelcolor=INK_SECONDARY,
+        labelsize=9,
+        labelfontfamily=FONTS[0],
+    )
+
+
+def group_palette(df: pl.DataFrame, by: str) -> dict[Any, str]:
+    """A fixed colour per group of `by`, in sorted group order, so every panel (and
+    every call on the same groups) colours a group the same way."""
+    groups = df[by].drop_nulls().unique().sort().to_list()
+    if len(groups) > len(CATEGORICAL):
+        raise ValueError(
+            f"by={by!r} has {len(groups)} groups, but at most {len(CATEGORICAL)} "
+            "can be told apart by colour; bin or filter it first"
+        )
+    return dict(zip(groups, CATEGORICAL, strict=False))
+
+
+def add_group_legend(fig: Figure, palette: dict[Any, str], title: str) -> None:
+    """One legend for the whole figure, outside the panels."""
+    handles = [Line2D([], [], color=c, linewidth=2) for c in palette.values()]
+    fig.legend(  # type: ignore
+        handles,
+        [str(g) for g in palette],
+        title=title,
+        loc="outside upper right",
+        alignment="left",
+    )

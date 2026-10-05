@@ -1,11 +1,13 @@
 from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
+import polars as pl
 import seaborn as sns
-from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from ._style import DIVERGING, INK_SECONDARY, SURFACE, styled
+from ._style import DIVERGING, INK_SECONDARY, SURFACE, figure_and_axes, styled
 from ._utils import PolarsFrame, ensure_collected, numeric_columns
 
 
@@ -14,23 +16,30 @@ def plot_corr_heatmap(
     data: PolarsFrame,
     figsize: tuple[float, float] = (10, 8),
     columns: Sequence[str] | None = None,
+    *,
+    method: Literal["pearson", "spearman"] = "pearson",
+    ax: Axes | None = None,
 ) -> Figure:
     """Plots the pairwise correlations of all numeric columns.
 
     Only the lower triangle is drawn: the upper one mirrors it and the diagonal is
     always 1. `columns` restricts the plot to these columns; by default all are
-    used.
+    used. `method="spearman"` correlates ranks instead of values: it catches any
+    monotonic relationship, not just linear ones, and isn't thrown off by skew or
+    outliers. With `ax`, the heatmap is drawn there and `figsize` is ignored.
     """
     df = ensure_collected(data, columns)
     cols = numeric_columns(df)
     if len(cols) < 2:
         raise ValueError("a correlation heatmap needs at least two numeric columns")
     # + 0.0 turns -0.0 into 0.0, so no "-0.00" annotations
-    corr = df.select(cols).corr().to_numpy()[1:, :-1].round(2) + 0.0
+    values = df.select(cols)
+    if method == "spearman":
+        values = values.select(pl.all().rank())
+    corr = values.corr().to_numpy()[1:, :-1].round(2) + 0.0
     n = len(cols) - 1
 
-    fig = plt.figure(figsize=figsize, layout="constrained")
-    ax = fig.add_subplot()  # type: ignore
+    fig, ax = figure_and_axes(ax, figsize)
     sns.heatmap(  # type: ignore
         corr,
         mask=np.triu(np.ones((n, n), dtype=bool), k=1),
@@ -61,5 +70,5 @@ def plot_corr_heatmap(
     if cbar is not None:
         cbar.outline.set_visible(False)  # type: ignore
         cbar.ax.tick_params(length=0, labelcolor=INK_SECONDARY)  # type: ignore
-    ax.set_title("Correlations")  # type: ignore
+    ax.set_title(f"Correlations ({method})")  # type: ignore
     return fig
