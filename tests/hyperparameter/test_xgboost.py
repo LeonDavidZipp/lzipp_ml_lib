@@ -70,12 +70,14 @@ def test_fit_xgb_regressor_train_test(
     result = fit_xgb_regressor(x_train, y_train, x_test, y_test)
     model = result.model
     check_is_fitted(model)
-    expected_space = HyperparameterSpace.default_xgb_regressor().value_spaces()
-    for key, val in expected_space.items():
+    for key, dim in HyperparameterSpace.default_xgb_regressor().items():
+        value = getattr(model, key)
         if key == "n_estimators":
-            assert 1 <= model.n_estimators <= max(val)  # type: ignore
+            # early stopping may cut it to the best trial's rounds, off the grid
+            assert isinstance(dim, IntegerDimension)
+            assert 1 <= value <= dim.high
             continue
-        assert getattr(model, key) in val
+        assert dim.contains(value), key
 
 
 @FIT_SETTINGS
@@ -98,12 +100,14 @@ def test_fit_xgb_regressor_train_val_test(
     )
     model = result.model
     check_is_fitted(model)
-    expected_space = HyperparameterSpace.default_xgb_regressor().value_spaces()
-    for key, val in expected_space.items():
+    for key, dim in HyperparameterSpace.default_xgb_regressor().items():
+        value = getattr(model, key)
         if key == "n_estimators":
-            assert 1 <= model.n_estimators <= max(val)  # type: ignore
+            # early stopping may cut it to the best trial's rounds, off the grid
+            assert isinstance(dim, IntegerDimension)
+            assert 1 <= value <= dim.high
             continue
-        assert getattr(model, key) in val
+        assert dim.contains(value), key
 
 
 @FIT_SETTINGS
@@ -120,12 +124,14 @@ def test_fit_xgb_regressor_train_test_custom_parameter_space(
     )
     model = result.model
     check_is_fitted(model)
-    expected_values = expected_space.value_spaces()
-    for key, val in expected_values.items():
+    for key, dim in expected_space.items():
+        value = getattr(model, key)
         if key == "n_estimators":
-            assert 1 <= model.n_estimators <= max(val)  # type: ignore
+            # early stopping may cut it to the best trial's rounds, off the grid
+            assert isinstance(dim, IntegerDimension)
+            assert 1 <= value <= dim.high
             continue
-        assert getattr(model, key) in val
+        assert dim.contains(value), key
 
 
 @FIT_SETTINGS
@@ -154,12 +160,14 @@ def test_fit_xgb_regressor_train_val_test_custom_parameter_space(
     )
     model = result.model
     check_is_fitted(model)
-    expected_values = expected_space.value_spaces()
-    for key, val in expected_values.items():
+    for key, dim in expected_space.items():
+        value = getattr(model, key)
         if key == "n_estimators":
-            assert 1 <= model.n_estimators <= max(val)  # type: ignore
+            # early stopping may cut it to the best trial's rounds, off the grid
+            assert isinstance(dim, IntegerDimension)
+            assert 1 <= value <= dim.high
             continue
-        assert getattr(model, key) in val
+        assert dim.contains(value), key
 
 
 @FIT_SETTINGS
