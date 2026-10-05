@@ -192,9 +192,9 @@ def generate_fitted_model(
 
 
 def _get_regressors(y: pl.DataFrame, regressors: Sequence[str] | None) -> list[str]:
-    internal_regressors = set([col for col in y.columns if col not in ("ds", "y")])
+    internal_regressors = {col for col in y.columns if col not in ("ds", "y")}
     if regressors and list(internal_regressors & set(regressors)) != list(regressors):
-        ValueError(
+        raise ValueError(
             f"Not all provided regressors {regressors} could be found in the available "
             + f"regressor columns {internal_regressors}"
         )

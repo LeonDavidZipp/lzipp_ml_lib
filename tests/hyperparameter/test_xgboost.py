@@ -251,7 +251,8 @@ def test_fit_xgb_regressor_early_stopping_shortens_final_model():
     )
     # trained for the rounds the best trial used, without stopping on its own
     n_estimators = result.model.n_estimators
-    assert n_estimators is not None and n_estimators < 1000
+    assert n_estimators is not None
+    assert n_estimators < 1000
     assert result.model.early_stopping_rounds is None
 
 
