@@ -1,13 +1,13 @@
 import math
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
 import dataframely as dy
 import polars as pl
 import polars.testing as plt
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from lzipp_ml_lib import RollingStat, TimeseriesFeatures, TimeseriesSchema
@@ -514,7 +514,12 @@ def test_lag_pairs_combine_values_exactly_n_units_earlier(
     ),
     horizon=time_string(),
 )
-def test_rolling(): ...
+@example(horizon=None)
+def test_rolling(
+    windows: list[str],
+    stats: list[Literal["mean", "std", "min", "max", "median"]],
+    horizon: str | None,
+): ...
 
 
 # ------------------------------------------------------------------------------------ #
