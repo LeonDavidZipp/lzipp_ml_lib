@@ -621,7 +621,9 @@ class TimeseriesFeatures:
         """Join `values` (`ts` + feature columns, computed including each row's own
         observation) so every row gets the latest values known at prediction time:
         at or before `ts - horizon`, or strictly before `ts` without a horizon."""
-        cutoff = _ts if self.horizon is None else _ts.dt.offset_by(f"-{self.horizon}")
+        cutoff = (
+            _ts if self.horizon is None else _ts.dt.offset_by(f"-{self.horizon}")
+        ).set_sorted()
         return (
             lf.with_columns(_cutoff=cutoff)
             .join_asof(
