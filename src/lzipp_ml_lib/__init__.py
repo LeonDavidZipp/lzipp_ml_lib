@@ -1,3 +1,4 @@
+from .hyperparameter import fit_xgb_classifier, fit_xgb_regressor
 from .plotting import plot_corr_heatmap, plot_kde
 from .timeseries import (
     CalendarFeature,
@@ -17,4 +18,6 @@ __all__ = [
     "TimeseriesFeatures",
     "TimeseriesSchema",
     "TrendUnit",
+    "fit_xgb_classifier",
+    "fit_xgb_regressor",
 ]
