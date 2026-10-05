@@ -629,20 +629,7 @@ class TimeseriesFeatures:
         """Join `values` (`ts` + feature columns, computed including each row's own
         observation) so every row gets the latest values known at prediction time:
         at or before `ts - horizon`, or strictly before `ts` without a horizon."""
-        cutoff = (
-            _ts if self.horizon is None else _ts.dt.offset_by(f"-{self.horizon}")
-        ).set_sorted()
-        return (
-            lf.with_columns(_cutoff=cutoff)
-            .join_asof(
-                values.rename({"ts": "_cutoff"}),
-                on="_cutoff",
-                strategy="backward",
-                allow_exact_matches=self.horizon is not None,
-                tolerance=tolerance,
-            )
-            .drop("_cutoff")
-        )
+        return _latest_available(self.horizon, lf, values, tolerance, drop_cutoff=True)
 
     def _check_lags(self, lags: dict[str, list[int]]) -> None:
         """Raise if a lag isn't positive or is shorter than the horizon."""
@@ -767,6 +754,29 @@ _UNIT_SECONDS = {
     "s": 1,
 }
 _DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
+
+
+def _latest_available(
+    horizon: str | None,
+    lf: pl.LazyFrame,
+    values: pl.LazyFrame,
+    tolerance: str | None = None,
+    drop_cutoff: bool = True,
+) -> pl.LazyFrame:
+    """Join `values` (`ts` + feature columns, computed including each row's own
+    observation) so every row gets the latest values known at prediction time:
+    at or before `ts - horizon`, or strictly before `ts` without a horizon."""
+    cutoff = (_ts if horizon is None else _ts.dt.offset_by(f"-{horizon}")).set_sorted()
+    out = lf.with_columns(_cutoff=cutoff).join_asof(
+        values.rename({"ts": "_cutoff"}),
+        on="_cutoff",
+        strategy="backward",
+        allow_exact_matches=horizon is not None,
+        tolerance=tolerance,
+    )
+    if drop_cutoff:
+        return out.drop("_cutoff")
+    return out
 
 
 @lru_cache()
