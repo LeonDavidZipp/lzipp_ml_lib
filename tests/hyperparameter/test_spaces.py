@@ -7,6 +7,7 @@ import pytest
 import rustuna
 import xgboost as xgb
 from hypothesis import given
+from hypothesis import strategies as st
 from prophet import Prophet
 
 from lzipp_ml_lib.hyperparameter import (
@@ -15,9 +16,11 @@ from lzipp_ml_lib.hyperparameter import (
     HyperparameterSpace,
     IntegerDimension,
 )
+from lzipp_ml_lib.hyperparameter._space import HyperparameterDimension
 from tests.hyperparameter.composites import (
     categorical_dimensions,
     integer_dimensions,
+    linear_float_dimensions,
     log_float_dimensions,
     partial_default_spaces,
     stepped_float_dimensions,
@@ -128,6 +131,72 @@ def test_float_dimension_log_values_are_log_of_linear_values(dim: FloatDimension
     linear = dim.values()
     dim.log = True
     assert dim.values() == pytest.approx(np.log(linear).tolist())
+
+
+@given(linear_float_dimensions())
+def test_float_dimension_without_step_spreads_n_points_evenly(dim: FloatDimension):
+    values = dim.values()
+    assert len(values) == dim.n_points
+    assert values[0] == pytest.approx(dim.low)
+    assert values[-1] == pytest.approx(dim.high)
+    assert np.diff(values) == pytest.approx((dim.high - dim.low) / (dim.n_points - 1))
+
+
+@given(log_float_dimensions())
+def test_log_float_dimension_without_step_spreads_n_points_geometrically(
+    dim: FloatDimension,
+):
+    values = dim.values()  # natural logs of the points
+    assert len(values) == dim.n_points
+    assert values[0] == pytest.approx(np.log(dim.low))
+    assert values[-1] == pytest.approx(np.log(dim.high))
+    assert np.diff(values) == pytest.approx(
+        np.log(dim.high / dim.low) / (dim.n_points - 1), abs=1e-9
+    )
+
+
+@given(
+    st.one_of(
+        categorical_dimensions(),
+        integer_dimensions(),
+        stepped_float_dimensions(),
+        linear_float_dimensions(),
+        log_float_dimensions(),
+    )
+)
+def test_dimension_contains_its_suggestions(dim: HyperparameterDimension):
+    suggested, _ = _recorded_params(HyperparameterSpace(xgb.XGBRegressor, {"d": dim}))
+    assert dim.contains(suggested["d"])
+
+
+@given(st.one_of(categorical_dimensions(), integer_dimensions()))
+def test_discrete_dimension_contains_exactly_its_values(
+    dim: CategoricalDimension | IntegerDimension,
+):
+    assert all(dim.contains(v) for v in dim.values())
+    if isinstance(dim, IntegerDimension):
+        assert not dim.contains(dim.low - 1)
+        assert not dim.contains(dim.high + 1)
+        if dim.step > 1:
+            assert not dim.contains(dim.low + 1)
+
+
+@given(stepped_float_dimensions())
+def test_stepped_float_dimension_contains_grid_points_only(dim: FloatDimension):
+    assert dim.step is not None
+    assert all(dim.contains(v) for v in dim.values())
+    if dim.high > dim.low:
+        assert not dim.contains(dim.low + dim.step / 2)
+    assert not dim.contains(dim.high + dim.step)
+
+
+@given(st.one_of(integer_dimensions(), linear_float_dimensions()))
+def test_numeric_dimension_rejects_non_numbers(
+    dim: IntegerDimension | FloatDimension,
+):
+    assert not dim.contains(True)
+    assert not dim.contains(None)
+    assert not dim.contains(str(dim.low))
 
 
 def test_float_dimension_values_include_both_bounds():

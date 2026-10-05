@@ -169,7 +169,12 @@ def _y_lf(y: NDArray[np.float64] | NDArray[np.int64]) -> pl.DataFrame:
     return pl.DataFrame({"y": y})
 
 
-_MODEL_TYPES: list[type[Any]] = [
+_MODEL_TYPES: list[
+    type[xgb.XGBRegressor]
+    | type[xgb.XGBClassifier]
+    | type[xgb.XGBRanker]
+    | type[Prophet]
+] = [
     xgb.XGBRegressor,
     xgb.XGBClassifier,
     xgb.XGBRanker,
@@ -214,6 +219,14 @@ def log_float_dimensions(draw: st.DrawFn) -> FloatDimension:
     # after `low`: in log space the rounded bounds can cross
     high = draw(st.one_of(st.just(low), st.floats(low * (1 + 1e-9), 1e4)))
     return FloatDimension("f", low=low, high=high, log=True)
+
+
+@st.composite
+def linear_float_dimensions(draw: st.DrawFn) -> FloatDimension:
+    low = draw(st.floats(-1e3, 1e3))
+    high = draw(st.floats(low, low + 1e3))
+    n_points = draw(st.integers(2, 50))
+    return FloatDimension("f", low=low, high=high, n_points=n_points)
 
 
 @st.composite
