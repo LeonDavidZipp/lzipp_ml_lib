@@ -326,6 +326,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xgboost-3.4.2-cpu_pyhb39878e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/3f/ee/8c483b9384f269a14f62fa9760d0021273d1786128273ee14962468d9114/scikit_learn_stubs-0.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/37/08d9afccfa76355739ff2dbc559de064f1c8420dfc4125ad489c1d5532c6/rustuna-0.1.1-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d0/ab/6c77aeea4522cd11517150668693388a4b9f2f2e77f0b112429190e457c1/matplotlib_stubs-0.3.11-py3-none-any.whl
@@ -592,6 +593,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
       - pypi: ./
       - pypi: https://files.pythonhosted.org/packages/0a/25/360dc3716cf4718f767e8d8bd5c1107231681456441b00d692ad7c5fea51/rustuna-0.1.1-cp311-abi3-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/3f/ee/8c483b9384f269a14f62fa9760d0021273d1786128273ee14962468d9114/scikit_learn_stubs-0.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d0/ab/6c77aeea4522cd11517150668693388a4b9f2f2e77f0b112429190e457c1/matplotlib_stubs-0.3.11-py3-none-any.whl
       win-64:
@@ -855,6 +857,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/zlib-ng-2.3.3-h0261ad2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_7.conda
       - pypi: ./
+      - pypi: https://files.pythonhosted.org/packages/3f/ee/8c483b9384f269a14f62fa9760d0021273d1786128273ee14962468d9114/scikit_learn_stubs-0.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/42/5b/3639a8ac9482bc40cb7896b9bb044b9e862eaaf6d96dffede13124da996f/rustuna-0.1.1-cp311-abi3-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d0/ab/6c77aeea4522cd11517150668693388a4b9f2f2e77f0b112429190e457c1/matplotlib_stubs-0.3.11-py3-none-any.whl
@@ -12392,6 +12395,11 @@ packages:
   version: 0.1.1
   sha256: 73eaed4356f5e5f8bc7aaa72b45994903b7b32fd91a47289db562a40db8f02ef
   requires_python: '>=3.11'
+- pypi: https://files.pythonhosted.org/packages/3f/ee/8c483b9384f269a14f62fa9760d0021273d1786128273ee14962468d9114/scikit_learn_stubs-0.0.3-py3-none-any.whl
+  name: scikit-learn-stubs
+  version: 0.0.3
+  sha256: 5d51257ab62c79d265fa7b05e69ad64b038ac7803bfb1d6490562d4da3109aae
+  requires_python: '>=3.9'
 - pypi: https://files.pythonhosted.org/packages/42/5b/3639a8ac9482bc40cb7896b9bb044b9e862eaaf6d96dffede13124da996f/rustuna-0.1.1-cp311-abi3-win_amd64.whl
   name: rustuna
   version: 0.1.1

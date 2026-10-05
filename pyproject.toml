@@ -19,7 +19,9 @@ lzipp_ml_lib = { path = ".", editable = true }
 [tool.pixi.tasks]
 fmt = "pixi exec ruff format && pixi exec ruff check --fix"
 lint = "pixi exec ruff check"
-test = "pixi run pytest ./tests --hypothesis-seed 42"
+test = "pixi run pytest ./tests -vvvv --hypothesis-seed 42"
+build = "pixi exec --spec python-build --spec hatchling python -m build"
+
 
 [tool.pixi.dependencies]
 scikit-learn = ">=1.9.1,<2"
@@ -39,16 +41,16 @@ pyarrow = ">=25.0.0,<26"
 dataframely = ">=3.1.2,<4"
 holidays = ">=0.105,<0.106"
 prophet = ">=1.4.0,<2"
+matplotlib = ">=3.11.2,<4"
+seaborn = ">=0.13.2,<0.14"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = "*"
 ipykernel = "*"
-matplotlib = "*"
-seaborn = "*"
 hypothesis = ">=6.168.3,<7"
 
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
 
 [dependency-groups]
-dev = ["graphviz>=0.21,<0.22", "matplotlib-stubs>=0.3.11,<0.4"]
+dev = ["graphviz>=0.21,<0.22", "matplotlib-stubs>=0.3.11,<0.4", "scikit-learn-stubs>=0.0.3,<0.0.4"]
