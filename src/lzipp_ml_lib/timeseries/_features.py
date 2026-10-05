@@ -606,10 +606,13 @@ class TimeseriesFeatures:
             pl.LazyFrame: `lf` with the `exog` columns appended (without `ts` if
                 `drop_ts`).
         """
+        exog_sorted = exog.sort(by="ts", descending=False)
         if known_in_advance:
-            out = lf.join_asof(exog, on="ts", strategy="backward", tolerance=tolerance)
+            out = lf.join_asof(
+                exog_sorted, on="ts", strategy="backward", tolerance=tolerance
+            )
         else:
-            out = self._latest_available(lf, exog, tolerance)
+            out = self._latest_available(lf, exog_sorted, tolerance)
         return _cleanup(out, drop_ts, drop_nulls)
 
     def _latest_available(
