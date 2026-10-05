@@ -1,4 +1,11 @@
 from ._category_counts import plot_category_counts
+from ._classification import (
+    plot_calibration,
+    plot_classification_diagnostics,
+    plot_confusion_matrix,
+    plot_precision_recall,
+    plot_roc_curves,
+)
 from ._correlations import plot_corr_heatmap
 from ._distributions import (
     plot_boxplots,
@@ -6,6 +13,8 @@ from ._distributions import (
     plot_kde,
     plot_violinplots,
 )
+from ._model import plot_feature_importance, plot_learning_curves
+from ._regression import plot_forecast, plot_regression_diagnostics
 from ._seasonality import plot_decomposition, plot_seasonal_profile
 from ._style import styled
 from ._target import plot_feature_target
@@ -36,4 +45,13 @@ __all__ = [
     "plot_decomposition",
     "plot_rolling_stats",
     "plot_gaps",
+    "plot_regression_diagnostics",
+    "plot_forecast",
+    "plot_feature_importance",
+    "plot_learning_curves",
+    "plot_confusion_matrix",
+    "plot_roc_curves",
+    "plot_precision_recall",
+    "plot_calibration",
+    "plot_classification_diagnostics",
 ]

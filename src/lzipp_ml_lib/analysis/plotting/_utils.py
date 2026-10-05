@@ -1,7 +1,9 @@
 from collections.abc import Sequence
 from datetime import timedelta
 
+import numpy as np
 import polars as pl
+from numpy.typing import ArrayLike
 
 PolarsFrame = pl.DataFrame | pl.LazyFrame
 
@@ -91,3 +93,43 @@ def default_period(interval: timedelta) -> int:
     if interval < timedelta(days=60):
         return 12
     return 4
+
+
+# what the evaluation plots take for labels, predictions and probabilities
+Values = ArrayLike | pl.Series | pl.DataFrame
+
+
+def as_1d(values: Values, name: str) -> np.ndarray:
+    """A flat array from a list, array, Series or single-column DataFrame (like the
+    `y` frames the fit functions take)."""
+    if isinstance(values, pl.DataFrame):
+        if values.width != 1:
+            raise ValueError(f"{name} needs exactly one column, got {values.width}")
+        values = values.to_series()
+    array = values.to_numpy() if isinstance(values, pl.Series) else np.asarray(values)
+    if array.ndim == 2 and array.shape[1] == 1:
+        array = array[:, 0]
+    if array.ndim != 1:
+        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
+    return array
+
+
+def as_proba(values: Values) -> np.ndarray:
+    """Class probabilities as an (n, n_classes) array. A flat input is taken as the
+    positive class's probability of a binary problem."""
+    array = values.to_numpy() if isinstance(values, pl.DataFrame) else None
+    if array is None:
+        array = (
+            values.to_numpy() if isinstance(values, pl.Series) else np.asarray(values)
+        )
+    if array.ndim == 1:
+        return np.column_stack([1 - array, array])
+    if array.ndim != 2 or array.shape[1] < 2:
+        raise ValueError(f"y_proba must be (n,) or (n, n_classes), got {array.shape}")
+    return array
+
+
+def same_length(**arrays: np.ndarray) -> None:
+    lengths = {name: len(a) for name, a in arrays.items()}
+    if len(set(lengths.values())) > 1:
+        raise ValueError(f"lengths differ: {lengths}")
