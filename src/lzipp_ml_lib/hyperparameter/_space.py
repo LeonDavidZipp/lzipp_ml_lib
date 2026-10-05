@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from typing import Generic, Self, TypeVar
@@ -12,16 +13,21 @@ from rustuna import Trial
 from ._types import M
 
 CategoricalChoiceType = float | int | str | bool | None
-# method-scoped counterpart of M, for classmethods called on the unparametrized class
 _Model = TypeVar("_Model", bound=xgb.XGBModel | Prophet)
 
 
 class HyperparameterDimension(ABC):
     @abstractmethod
-    def suggest(self, trial: Trial) -> CategoricalChoiceType: ...
+    def suggest(self, trial: Trial) -> CategoricalChoiceType:
+        """Suggests a value using the provided trial."""
 
     @abstractmethod
-    def values(self) -> Sequence[CategoricalChoiceType]: ...
+    def values(self) -> Sequence[CategoricalChoiceType]:
+        """If possible, eturns the values it contains."""
+
+    @abstractmethod
+    def contains(self, value: CategoricalChoiceType) -> bool:
+        """Whether `suggest` can return `value`."""
 
 
 class CategoricalDimension(HyperparameterDimension):
@@ -34,6 +40,9 @@ class CategoricalDimension(HyperparameterDimension):
 
     def values(self) -> Sequence[CategoricalChoiceType]:
         return self.choices
+
+    def contains(self, value: CategoricalChoiceType) -> bool:
+        return value in self.choices
 
 
 class IntegerDimension(HyperparameterDimension):
@@ -54,6 +63,11 @@ class IntegerDimension(HyperparameterDimension):
     def values(self) -> Sequence[int]:
         return list(range(self.low, self.high + 1, self.step))
 
+    def contains(self, value: CategoricalChoiceType) -> bool:
+        if not isinstance(value, int) or isinstance(value, bool):
+            return False
+        return self.low <= value <= self.high and (value - self.low) % self.step == 0
+
 
 class FloatDimension(HyperparameterDimension):
     def __init__(
@@ -63,12 +77,14 @@ class FloatDimension(HyperparameterDimension):
         high: float,
         step: float | None = None,
         log: bool = False,
+        n_points: int = 10,
     ):
         self.name = name
         self.low = low
         self.high = high
         self.step = step
         self.log = log
+        self.n_points = n_points
 
     def suggest(self, trial: Trial) -> float:
         return trial.suggest_float(
@@ -76,12 +92,31 @@ class FloatDimension(HyperparameterDimension):
         )
 
     def values(self) -> Sequence[float]:
-        step = self.step if self.step is not None else 1.0
-        n = round((self.high - self.low) / step) + 1
-        values = np.linspace(self.low, self.high, n)
+        """
+        The `step` grid from `low` to `high`, or `n_points` points spread evenly
+        (geometrically if `log`) without a `step`. Both bounds are included. With
+        `log`, the points are returned as their natural logarithms.
+        """
+        if self.step is not None:
+            n = round((self.high - self.low) / self.step) + 1
+            values = np.linspace(self.low, self.high, n)
+        elif self.log:
+            values = np.geomspace(self.low, self.high, self.n_points)
+        else:
+            values = np.linspace(self.low, self.high, self.n_points)
         if self.log:
             return np.log(values).tolist()
         return values.tolist()
+
+    def contains(self, value: CategoricalChoiceType) -> bool:
+        if not isinstance(value, float | int) or isinstance(value, bool):
+            return False
+        if not self.low <= value <= self.high:
+            return False
+        if self.step is None:
+            return True
+        n_steps = (value - self.low) / self.step
+        return math.isclose(n_steps, round(n_steps), abs_tol=1e-9)
 
 
 def _fixed(**defaults: CategoricalChoiceType) -> dict[str, HyperparameterDimension]:
@@ -91,11 +126,6 @@ def _fixed(**defaults: CategoricalChoiceType) -> dict[str, HyperparameterDimensi
     }
 
 
-# Library defaults (xgboost 3.x, prophet 1.x) for every scalar hyperparameter, used
-# to pin whatever a search space doesn't tune. Left out: xgboost's `objective` (the
-# classifiers pick it from the number of classes), `scale_pos_weight` (binary only),
-# `early_stopping_rounds` (handled by the fitting functions) and prophet's
-# `changepoints` / `holidays` (not scalar choices).
 _XGB_DEFAULTS: dict[str, CategoricalChoiceType] = {
     "booster": "gbtree",
     "tree_method": "hist",
@@ -138,7 +168,7 @@ _PROPHET_DEFAULTS: dict[str, CategoricalChoiceType] = {
 
 
 def _model_defaults(
-    model_type: type[xgb.XGBModel] | type[Prophet],
+    model_type: type[M],
 ) -> dict[str, CategoricalChoiceType]:
     if issubclass(model_type, xgb.XGBModel):
         return _XGB_DEFAULTS
