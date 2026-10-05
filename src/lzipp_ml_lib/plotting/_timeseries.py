@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import matplotlib.dates as mdates
 import polars as pl
 from matplotlib import pyplot as plt
@@ -11,9 +13,15 @@ from ._utils import PolarsFrame, ensure_collected, numeric_columns
 
 
 @styled
-def plot_timeseries_grid(data: PolarsFrame, time_col: str = "ts") -> Figure:
-    """Plots a line chart over time for every numeric column in the dataset."""
-    df = ensure_collected(data).sort(time_col)
+def plot_timeseries_grid(
+    data: PolarsFrame, time_col: str = "ts", columns: Sequence[str] | None = None
+) -> Figure:
+    """Plots a line chart over time for every numeric column in the dataset.
+
+    `columns` restricts the plot to these columns; by default all are used.
+    `time_col` is always kept.
+    """
+    df = ensure_collected(data, columns, keep=(time_col,)).sort(time_col)
     cols = numeric_columns(df, exclude=(time_col,))
     fig, axes = panel_grid(len(cols), n_cols=1, panel_size=(12, 2.4))
     ts = df[time_col].to_numpy()
@@ -33,9 +41,14 @@ def plot_timeseries_grid(data: PolarsFrame, time_col: str = "ts") -> Figure:
 
 
 @styled
-def plot_missing_values(data: PolarsFrame) -> Figure:
-    """Plots the percentage of missing values per column, most missing on top."""
-    df = ensure_collected(data)
+def plot_missing_values(
+    data: PolarsFrame, columns: Sequence[str] | None = None
+) -> Figure:
+    """Plots the percentage of missing values per column, most missing on top.
+
+    `columns` restricts the plot to these columns; by default all are used.
+    """
+    df = ensure_collected(data, columns)
     missing = (
         df.null_count()
         .transpose(include_header=True, header_name="column", column_names=["nulls"])
@@ -45,9 +58,9 @@ def plot_missing_values(data: PolarsFrame) -> Figure:
     pct = missing["pct"].to_list()
 
     fig = plt.figure(figsize=(8, max(2.5, 0.32 * len(pct) + 1)), layout="constrained")
-    ax = fig.add_subplot()
-    bars = ax.barh(missing["column"].to_list(), pct, height=0.6, color=ACCENT)
-    ax.bar_label(
+    ax = fig.add_subplot()  # type: ignore
+    bars = ax.barh(missing["column"].to_list(), pct, height=0.6, color=ACCENT)  # type: ignore
+    ax.bar_label(  # type: ignore
         bars,
         labels=[f"{p:.1f}%" if p > 0 else "" for p in pct],
         padding=4,
@@ -55,11 +68,11 @@ def plot_missing_values(data: PolarsFrame) -> Figure:
         color=INK_SECONDARY,
     )
     ax.set_xlim(0, max(max(pct, default=0), 1) * 1.15)
-    ax.xaxis.set_major_formatter(PercentFormatter(decimals=0))
-    ax.grid(axis="y", visible=False)
-    ax.grid(axis="x", visible=True)
-    ax.margins(y=0.02)
-    ax.set_title("Missing values")
+    ax.xaxis.set_major_formatter(PercentFormatter(decimals=0))  # type: ignore
+    ax.grid(axis="y", visible=False)  # type: ignore
+    ax.grid(axis="x", visible=True)  # type: ignore
+    ax.margins(y=0.02)  # type: ignore
+    ax.set_title("Missing values")  # type: ignore
     return fig
 
 
@@ -73,7 +86,7 @@ def plot_autocorrelation(
     series = df.get_column(target_col).drop_nulls().to_numpy()
 
     fig = plt.figure(figsize=(12, 3.6), layout="constrained")
-    ax = fig.add_subplot()
+    ax = fig.add_subplot()  # type: ignore
     plot_acf(
         series,
         lags=lags,
@@ -84,17 +97,17 @@ def plot_autocorrelation(
         markersize=4,
         vlines_kwargs={"colors": ACCENT, "linewidth": 1.25},
     )
-    for coll in ax.collections:
+    for coll in ax.collections:  # type: ignore
         if isinstance(coll, PolyCollection):  # the confidence band
             coll.set_alpha(None)  # statsmodels' own alpha would override the wash
             coll.set_facecolor(ACCENT_WASH)
             coll.set_edgecolor("none")
-    for line in ax.lines:
-        if line.get_marker() in ("None", None, ""):  # the zero line
-            line.set_color(BASELINE)
-            line.set_linewidth(0.8)
-    ax.set_xlabel("Lag")
-    ax.set_ylabel("Correlation")
-    ax.set_ylim(-1.05, 1.05)
-    ax.margins(x=0.01)
+    for line in ax.lines:  # type: ignore
+        if line.get_marker() in ("None", None, ""):  # the zero line# type: ignore
+            line.set_color(BASELINE)  # type: ignore
+            line.set_linewidth(0.8)  # type: ignore
+    ax.set_xlabel("Lag")  # type: ignore
+    ax.set_ylabel("Correlation")  # type: ignore
+    ax.set_ylim(-1.05, 1.05)  # type: ignore
+    ax.margins(x=0.01)  # type: ignore
     return fig

@@ -117,9 +117,9 @@ def panel_grid(
         n_cols,
         figsize=(panel_size[0] * n_cols, panel_size[1] * n_rows),
         squeeze=False,
-        layout="constrainedcompressed",
+        layout="constrained",  # type: ignore
     )
-    flat: list[Axes] = list(np.ravel(axes))
+    flat: list[Axes] = list(np.ravel(axes))  # type: ignore
     for ax in flat[n_panels:]:
         ax.set_visible(False)
-    return fig, flat[:n_panels]
+    return fig, flat[:n_panels]  # type: ignore

@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -9,14 +11,17 @@ from ._utils import PolarsFrame, ensure_collected, numeric_columns
 
 @styled
 def plot_corr_heatmap(
-    data: PolarsFrame, figsize: tuple[float, float] = (10, 8)
+    data: PolarsFrame,
+    figsize: tuple[float, float] = (10, 8),
+    columns: Sequence[str] | None = None,
 ) -> Figure:
     """Plots the pairwise correlations of all numeric columns.
 
     Only the lower triangle is drawn: the upper one mirrors it and the diagonal is
-    always 1.
+    always 1. `columns` restricts the plot to these columns; by default all are
+    used.
     """
-    df = ensure_collected(data)
+    df = ensure_collected(data, columns)
     cols = numeric_columns(df)
     if len(cols) < 2:
         raise ValueError("a correlation heatmap needs at least two numeric columns")

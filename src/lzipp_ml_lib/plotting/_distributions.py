@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -7,9 +9,12 @@ from ._utils import PolarsFrame, ensure_collected, numeric_columns
 
 
 @styled
-def plot_kde(data: PolarsFrame) -> Figure:
-    """Plots a density curve for every numeric column."""
-    df = ensure_collected(data)
+def plot_kde(data: PolarsFrame, columns: Sequence[str] | None = None) -> Figure:
+    """Plots a density curve for every numeric column.
+
+    `columns` restricts the plot to these columns; by default all are used.
+    """
+    df = ensure_collected(data, columns)
     cols = numeric_columns(df)
     fig, axes = panel_grid(len(cols), n_cols=2, panel_size=(6, 3.2))
     for ax, col in zip(axes, cols, strict=True):
@@ -23,9 +28,12 @@ def plot_kde(data: PolarsFrame) -> Figure:
 
 
 @styled
-def plot_boxplots(data: PolarsFrame) -> Figure:
-    """Plots a boxplot for every numeric column, to show spread and outliers."""
-    df = ensure_collected(data)
+def plot_boxplots(data: PolarsFrame, columns: Sequence[str] | None = None) -> Figure:
+    """Plots a boxplot for every numeric column, to show spread and outliers.
+
+    `columns` restricts the plot to these columns; by default all are used.
+    """
+    df = ensure_collected(data, columns)
     cols = numeric_columns(df)
     fig, axes = panel_grid(len(cols), n_cols=3, panel_size=(5, 2.2))
     for ax, col in zip(axes, cols, strict=True):
@@ -50,10 +58,13 @@ def plot_boxplots(data: PolarsFrame) -> Figure:
 
 
 @styled
-def plot_violinplots(data: PolarsFrame) -> Figure:
+def plot_violinplots(data: PolarsFrame, columns: Sequence[str] | None = None) -> Figure:
     """Plots a violin plot for every numeric column, to show the shape of its
-    distribution."""
-    df = ensure_collected(data)
+    distribution.
+
+    `columns` restricts the plot to these columns; by default all are used.
+    """
+    df = ensure_collected(data, columns)
     cols = numeric_columns(df)
     fig, axes = panel_grid(len(cols), n_cols=3, panel_size=(5, 2.2))
     for ax, col in zip(axes, cols, strict=True):
