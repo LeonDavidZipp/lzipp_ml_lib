@@ -498,32 +498,37 @@ class TimeseriesFeatures:
             .collect()
             .row(0)
         )
-        # Pad a year on each side so days_to/since_holiday aren't null at the edges.
         calendar = holidays.country_holidays(
             country, subdiv=subdiv, years=range(lo - 1, hi + 2)
         )
-        holiday_dates = pl.DataFrame(
+        holidays_df = pl.DataFrame(
             {"_hol": sorted(calendar.keys())}, schema={"_hol": pl.Date}
         )
+        holidays_lf = holidays_df.lazy()
         day_off = pl.col("is_holiday") | (pl.col("_date").dt.weekday() >= 6)
         days = (
-            pl.DataFrame(
+            pl.LazyFrame(
                 {
                     "_date": pl.date_range(
                         date(lo - 1, 1, 1), date(hi + 1, 12, 31), eager=True
                     )
                 }
             )
-            .with_columns(is_holiday=pl.col("_date").is_in(holiday_dates["_hol"]))
+            .with_columns(
+                is_holiday=pl.col("_date").is_in(holidays_df.get_column("_hol"))
+            )
             .join_asof(
-                holiday_dates, left_on="_date", right_on="_hol", strategy="forward"
+                holidays_lf, left_on="_date", right_on="_hol", strategy="forward"
             )
             .with_columns(
                 days_to_holiday=(pl.col("_hol") - pl.col("_date")).dt.total_days()
             )
             .drop("_hol")
             .join_asof(
-                holiday_dates, left_on="_date", right_on="_hol", strategy="backward"
+                holidays_lf,
+                left_on="_date",
+                right_on="_hol",
+                strategy="backward",
             )
             .with_columns(
                 days_since_holiday=(pl.col("_date") - pl.col("_hol")).dt.total_days()
@@ -533,7 +538,7 @@ class TimeseriesFeatures:
         )
         out = (
             lf.with_columns(_date=_ts.dt.date())
-            .join(days.lazy(), on="_date", how="left", maintain_order="left")
+            .join(days, on="_date", how="left", maintain_order="left")
             .drop("_date")
         )
         return _cleanup(out, drop_ts, drop_nulls)
