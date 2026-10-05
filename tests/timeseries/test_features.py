@@ -7,10 +7,12 @@ import dataframely as dy
 import polars as pl
 import polars.testing as plt
 import pytest
-from hypothesis import example, given
+from hypothesis import given
 from hypothesis import strategies as st
 
 from lzipp_ml_lib import RollingStat, TimeseriesFeatures, TimeseriesSchema
+from lzipp_ml_lib.timeseries._features import _latest_available  # type: ignore
+from tests.composites import BIG_SETTINGS, MIDSIZE_SETTINGS
 
 from .composites import (
     UNITS,
@@ -98,6 +100,7 @@ def test_prepare_real_data(base_timeseries_lf: pl.LazyFrame) -> None:
     assert TimeseriesSchema.is_valid(df)
 
 
+@BIG_SETTINGS
 @given(rows=messy_rows())
 def test_prepare_keeps_first_occurrence_of_valid_rows_sorted(
     rows: list[tuple[datetime | None, float | None]],
@@ -268,6 +271,7 @@ def test_lag_respects_horizon(lags: dict[str, Any], allowed: bool) -> None:
             fe.lag(lf, **lags)
 
 
+@MIDSIZE_SETTINGS
 @given(
     case=st.one_of(grid_with_gaps(), daily_with_calendar_lag()),
     data=st.data(),
@@ -514,12 +518,69 @@ def test_lag_pairs_combine_values_exactly_n_units_earlier(
     ),
     horizon=time_string(),
 )
-@example(horizon=None)
-def test_rolling(
+@MIDSIZE_SETTINGS
+def test_rolling_generates_all_required_columns(
     windows: list[str],
     stats: list[Literal["mean", "std", "min", "max", "median"]],
     horizon: str | None,
-): ...
+):
+    years10 = int(10 * 365.25 * 24)
+    lf = TimeseriesSchema.validate(
+        _counting_lf(years10).sort(by="ts", descending=False)
+    )
+    fe = TimeseriesFeatures(horizon)
+    result = fe.rolling(lf, windows, stats).collect()
+    assert len(result.columns[2:]) == len(windows) * len(stats)
+
+
+# ------------------------------------------------------------------------------------ #
+#                                       _latest_available                              #
+# ------------------------------------------------------------------------------------ #
+
+
+def _lf_from_horizon(horizon: str, feature_name: str = "val") -> pl.LazyFrame:
+    """
+    Generates a LazyFrame with a 'ts' column that spans 10x the given horizon.
+    Guarantees sufficient length for offset cutoffs and strict monotonicity.
+    """
+    ts_expr = pl.lit(datetime(2020, 1, 1)).cast(pl.Datetime)
+    exprs = [ts_expr]
+
+    for _ in range(10):
+        ts_expr = ts_expr.dt.offset_by(horizon)
+        exprs.append(ts_expr)
+
+    return (
+        pl.LazyFrame({"dummy": [1]})
+        .select(pl.concat_list(exprs).alias("ts"))
+        .explode("ts")
+        .with_row_index(name=feature_name)
+        .with_columns(pl.col("ts").set_sorted(), pl.col(feature_name).cast(pl.Float64))
+    )
+
+
+@BIG_SETTINGS
+@given(horizon=time_string())
+def test_latest_available_respects_horizon(horizon: str):
+    lf = _lf_from_horizon(horizon)
+    values = _lf_from_horizon(horizon, "other_feature")
+    result = _latest_available(horizon, lf, values, drop_cutoff=False).collect()  # type: ignore
+    assert result.select(
+        (pl.col("_cutoff").dt.offset_by(horizon) <= pl.col("ts")).all()
+    ).item()
+    assert result.get_column("ts").is_sorted()
+    assert result.get_column("_cutoff").is_sorted()
+
+
+def test_latest_available_no_horizon():
+    horizon = None
+    horizon_used = "1d"
+    lf = _lf_from_horizon(horizon_used)
+    values = _lf_from_horizon(horizon_used, "other_feature")
+    result = _latest_available(horizon, lf, values, drop_cutoff=False).collect()  # type: ignore
+    assert result.select((pl.col("_cutoff") <= pl.col("ts")).all()).item()
+    assert result.get_column("ts").is_sorted()
+    assert result.get_column("_cutoff").is_sorted()
 
 
 # ------------------------------------------------------------------------------------ #
