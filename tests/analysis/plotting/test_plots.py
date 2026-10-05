@@ -182,6 +182,46 @@ def test_feature_target_rejects_a_string_target():
         plotting.plot_feature_target(_frame(), "group")
 
 
+def test_feature_target_log_x_true_logs_every_numeric_feature():
+    fig = plotting.plot_feature_target(_frame(), "b", log_x=True)
+    scales = {
+        ax.get_title(loc="left"): ax.get_xscale() for ax in fig.axes if ax.get_visible()
+    }
+    assert scales == {
+        "a": "symlog",  # half its bins sit below 0
+        "c": "log",
+        "count": "log",  # has zeros, but they share a bin whose median is 1
+        "group": "linear",
+        "flag": "linear",
+    }
+
+
+def test_feature_target_log_x_uses_symlog_for_a_bin_at_zero():
+    df = pl.DataFrame({"x": [0.0] * 50 + list(range(1, 51)), "y": range(100)})
+    ax = plotting.plot_feature_target(df, "y", log_x=True, n_bins=4).axes[0]
+    assert ax.get_xscale() == "symlog"
+    assert ax.lines[0].get_xdata()[0] == 0  # type: ignore
+
+
+def test_feature_target_log_x_list_logs_only_those_features():
+    fig = plotting.plot_feature_target(_frame(), "b", ["a", "c"], log_x=["c"])
+    assert [ax.get_xscale() for ax in fig.axes] == ["linear", "log"]
+
+
+def test_feature_target_log_x_only_changes_the_axis_not_the_bins():
+    plain = plotting.plot_feature_target(_frame(), "b", ["c"]).axes[0]
+    logged = plotting.plot_feature_target(_frame(), "b", ["c"], log_x=True).axes[0]
+    np.testing.assert_array_equal(
+        plain.lines[0].get_xydata(),  # type: ignore
+        logged.lines[0].get_xydata(),  # type: ignore
+    )
+
+
+def test_feature_target_log_x_rejects_unknown_features():
+    with pytest.raises(ValueError, match="log_x names"):
+        plotting.plot_feature_target(_frame(), "b", ["a"], log_x=["group"])
+
+
 # ------------------------------------------------------------------------------------ #
 #                                single-axes plots                                     #
 # ------------------------------------------------------------------------------------ #
