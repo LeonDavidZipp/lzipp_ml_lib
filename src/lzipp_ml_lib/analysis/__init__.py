@@ -10,7 +10,6 @@ from .plotting import (
     plot_timeseries_grid,
     plot_violinplots,
     styled,
-    summarize,
 )
 from .summary import summarize
 

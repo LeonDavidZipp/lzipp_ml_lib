@@ -1,5 +1,5 @@
+from .analysis.plotting import plot_corr_heatmap, plot_kde
 from .hyperparameter import fit_xgb_classifier, fit_xgb_regressor
-from .plotting import plot_corr_heatmap, plot_kde
 from .timeseries import (
     CalendarFeature,
     CyclicalFeature,

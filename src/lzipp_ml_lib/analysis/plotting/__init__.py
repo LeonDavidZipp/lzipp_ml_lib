@@ -1,4 +1,4 @@
-from ..summary import plot_category_counts, summarize
+from ._category_counts import plot_category_counts
 from ._correlations import plot_corr_heatmap
 from ._distributions import (
     plot_boxplots,
@@ -15,7 +15,7 @@ from ._timeseries import (
 )
 
 __all__ = [
-    "summarize",
+    "plot_category_counts",
     "styled",
     "plot_corr_heatmap",
     "plot_feature_target",
