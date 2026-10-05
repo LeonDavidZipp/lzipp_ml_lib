@@ -5,8 +5,8 @@ import polars as pl
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from ._style import ACCENT, INK_MUTED, INK_SECONDARY, panel_grid, styled
-from ._utils import PolarsFrame, categorical_columns, ensure_collected
+from .plotting._style import ACCENT, INK_MUTED, INK_SECONDARY, panel_grid, styled
+from .plotting._utils import PolarsFrame, categorical_columns, ensure_collected
 
 _SUMMARY_SCHEMA: dict[str, Any] = {
     "column": pl.String,

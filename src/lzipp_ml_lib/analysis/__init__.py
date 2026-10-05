@@ -1,18 +1,18 @@
-from ._correlations import plot_corr_heatmap
-from ._distributions import (
+from .plotting import (
+    plot_autocorrelation,
     plot_boxplots,
+    plot_category_counts,
+    plot_corr_heatmap,
+    plot_feature_target,
     plot_histograms,
     plot_kde,
-    plot_violinplots,
-)
-from ._style import styled
-from ._summary import plot_category_counts, summarize
-from ._target import plot_feature_target
-from ._timeseries import (
-    plot_autocorrelation,
     plot_missing_values,
     plot_timeseries_grid,
+    plot_violinplots,
+    styled,
+    summarize,
 )
+from .summary import summarize
 
 __all__ = [
     "summarize",
