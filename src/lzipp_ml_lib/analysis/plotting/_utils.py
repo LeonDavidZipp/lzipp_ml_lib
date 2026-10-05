@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import timedelta
 
 import polars as pl
 
@@ -57,3 +58,36 @@ def panel_values(
         high = sub[col].quantile(clip[1], interpolation="linear")
         sub = sub.filter(pl.col(col).is_between(low, high))
     return sub
+
+
+def series_frame(data: PolarsFrame, time_col: str, target_col: str) -> pl.DataFrame:
+    """`time_col` and `target_col` only, sorted by time, without null targets."""
+    return (
+        ensure_collected(data, [target_col], keep=(time_col,))
+        .filter(pl.col(target_col).is_not_null())
+        .sort(time_col)
+    )
+
+
+def infer_interval(ts: pl.Series) -> timedelta:
+    """The most common step between consecutive timestamps."""
+    steps = ts.sort().diff().drop_nulls()
+    steps = steps.filter(steps > timedelta(0))
+    if steps.len() == 0:
+        raise ValueError(f"can't infer a time step from {ts.name!r}: < 2 timestamps")
+    return steps.mode().min()  # type: ignore
+
+
+def default_period(interval: timedelta) -> int:
+    """The natural seasonal period, in steps, for data at this interval: a day of
+    sub-daily data, a week of daily data, a year of weekly or monthly data."""
+    day = timedelta(days=1)
+    if interval < day:
+        return max(2, round(day / interval))
+    if interval < timedelta(days=2):
+        return 7
+    if interval < timedelta(days=14):
+        return 52
+    if interval < timedelta(days=60):
+        return 12
+    return 4

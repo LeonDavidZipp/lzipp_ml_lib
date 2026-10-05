@@ -3,6 +3,7 @@ import math
 from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
+import matplotlib.dates as mdates
 import numpy as np
 import polars as pl
 from cycler import cycler
@@ -35,6 +36,12 @@ CATEGORICAL = [
 # red <-> neutral gray <-> blue, equal steps per arm
 DIVERGING = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_diverging", ["#a3302f", "#e34948", "#f0efec", "#2a78d6", "#104281"]
+)
+
+# one hue, light -> dark, for magnitudes (e.g. a seasonal profile heatmap)
+SEQUENTIAL = LinearSegmentedColormap.from_list(
+    "lzipp_sequential",
+    ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
 )
 
 # Concrete families rather than the generic "sans-serif": text resolves a generic
@@ -187,3 +194,10 @@ def add_group_legend(fig: Figure, palette: dict[Any, str], title: str) -> None:
         loc="outside upper right",
         alignment="left",
     )
+
+
+def date_axis(ax: Axes) -> None:
+    """Compact date ticks (e.g. "2024", "Feb", "Mar") instead of full timestamps."""
+    locator = mdates.AutoDateLocator()
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))  # type: ignore
