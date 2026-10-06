@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import numpy as np
 import polars as pl
+import polars.selectors as cs
 from numpy.typing import ArrayLike
 
 PolarsFrame = pl.DataFrame | pl.LazyFrame
@@ -11,7 +12,7 @@ PolarsFrame = pl.DataFrame | pl.LazyFrame
 def ensure_collected(
     data: PolarsFrame,
     columns: Sequence[str] | None = None,
-    keep: Sequence[str] = (),
+    keep: Sequence[str] | None = None,
 ) -> pl.DataFrame:
     """Evaluates LazyFrames to DataFrames, passes DataFrames through.
 
@@ -19,28 +20,31 @@ def ensure_collected(
     are selected, before collecting, so a LazyFrame only computes what is plotted.
     """
     if columns is not None:
-        data = data.select(*[c for c in keep if c not in columns], *columns)
+        data = data.select(*[c for c in (keep or []) if c not in columns], *columns)
     if isinstance(data, pl.LazyFrame):
         return data.collect()
     return data
 
 
 def numeric_columns(df: pl.DataFrame, exclude: tuple[str, ...] = ()) -> list[str]:
-    return [c for c in df.columns if c not in exclude and df[c].dtype.is_numeric()]
+    cols = df.select(cs.numeric()).columns
+    return [col for col in cols if col not in exclude]
 
 
 def categorical_columns(df: pl.DataFrame, exclude: tuple[str, ...] = ()) -> list[str]:
     """String, categorical, enum and boolean columns."""
     kinds = (pl.String, pl.Categorical, pl.Enum, pl.Boolean)
     return [
-        c for c in df.columns if c not in exclude and isinstance(df[c].dtype, kinds)
+        col
+        for col, dtype in df.schema.items()
+        if isinstance(dtype, kinds) and col not in exclude
     ]
 
 
-def maybe_sample(df: pl.DataFrame, sample: int | None) -> pl.DataFrame:
+def maybe_sample(df: pl.DataFrame, sample: int | None, seed: int = 0) -> pl.DataFrame:
     """At most `sample` random rows (fixed seed, so plots are reproducible)."""
     if sample is not None and df.height > sample:
-        return df.sample(sample, seed=0)
+        return df.sample(sample, seed=seed)
     return df
 
 
