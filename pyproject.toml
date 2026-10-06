@@ -53,4 +53,4 @@ hypothesis = ">=6.168.3,<7"
 default = { features = ["dev"], solve-group = "default" }
 
 [dependency-groups]
-dev = ["graphviz>=0.21,<0.22", "matplotlib-stubs>=0.3.11,<0.4", "scikit-learn-stubs>=0.0.3,<0.0.4"]
+dev = ["graphviz>=0.21,<0.22", "scikit-learn-stubs>=0.0.3,<0.0.4"]
