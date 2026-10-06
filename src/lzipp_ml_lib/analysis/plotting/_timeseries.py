@@ -265,12 +265,12 @@ def plot_gaps(
             markeredgewidth=1.5,
         )
         if missing.max() > 20 * max(missing.min(), 1):  # type: ignore
-            ax.set_yscale("log")
+            ax.set_yscale("log")  # type: ignore
         else:
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.set_ylim(bottom=0.8 if ax.get_yscale() == "log" else 0)  # type: ignore[operator]  # broken matplotlib-stubs
     else:
-        ax.text(
+        ax.text(  # type: ignore
             0.5,
             0.5,
             "No gaps",

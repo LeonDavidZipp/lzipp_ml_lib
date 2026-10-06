@@ -12,7 +12,7 @@ from matplotlib.collections import PolyCollection
 from sklearn.metrics import average_precision_score, r2_score, roc_auc_score
 
 from lzipp_ml_lib.analysis import plotting
-from lzipp_ml_lib.analysis.plotting import _regression
+from lzipp_ml_lib.analysis.plotting import _regression  # type: ignore
 from lzipp_ml_lib.analysis.plotting._utils import as_1d, as_proba
 from tests.composites import SAMPLE_SETTINGS
 
@@ -89,7 +89,7 @@ def test_regression_diagnostics_histogram_holds_every_residual():
     fig = plotting.plot_regression_diagnostics(
         pl.DataFrame({"y": actual}), pl.Series(predicted)
     )
-    assert sum(p.get_height() for p in fig.axes[2].patches) == len(actual)
+    assert sum(p.get_height() for p in fig.axes[2].patches) == len(actual)  # type: ignore
     title = fig.axes[2].get_title(loc="left")
     assert _number(title, "mean") == pytest.approx(
         (actual - predicted).mean(), abs=5e-3
@@ -111,7 +111,7 @@ def test_regression_diagnostics_reject_different_lengths():
 
 def test_forecast_sorts_by_time():
     ts = [datetime(2024, 1, 1) + timedelta(hours=h) for h in [2, 0, 1]]
-    fig = plotting.plot_forecast([20.0, 0.0, 10.0], [21.0, 1.0, 11.0], ts)
+    fig = plotting.plot_forecast([20.0, 0.0, 10.0], [21.0, 1.0, 11.0], ts)  # type: ignore
     np.testing.assert_array_equal(fig.axes[0].lines[0].get_ydata(), [0, 10, 20])
 
 
@@ -152,9 +152,9 @@ def test_feature_importance_ranks_the_signal_first_and_sums_to_one():
     model = xgb.XGBRegressor(n_estimators=20).fit(x, y)
     ax = plotting.plot_feature_importance(model).axes[0]
     names = [t.get_text() for t in ax.get_yticklabels()]
-    shares = [p.get_width() for p in ax.patches]
+    shares = [p.get_width() for p in ax.patches]  # type: ignore
     assert names[-1] == "signal"  # top bar
-    assert sum(shares) == pytest.approx(1)
+    assert sum(shares) == pytest.approx(1)  # type: ignore
     assert "1 of 3 features unused" in ax.get_title(loc="left")  # "constant"
 
 
@@ -183,7 +183,7 @@ def test_learning_curves_draw_every_eval_set_and_metric():
         f"mae  ·  best round {model.best_iteration}",
     ]
     legend = fig.axes[0].get_legend()
-    assert [t.get_text() for t in legend.get_texts()] == ["eval_set[0]", "eval_set[1]"]
+    assert [t.get_text() for t in legend.get_texts()] == ["eval_set[0]", "eval_set[1]"]  # type: ignore
 
 
 # ------------------------------------------------------------------------------------ #
@@ -195,7 +195,7 @@ def test_confusion_matrix_colours_are_row_shares():
     actual = ["a", "a", "a", "b", "b", "c"]
     predicted = ["a", "a", "b", "b", "c", "c"]
     ax = plotting.plot_confusion_matrix(actual, predicted).axes[0]
-    shares = ax.collections[0].get_array().reshape(3, 3)
+    shares = ax.collections[0].get_array().reshape(3, 3)  # type: ignore
     np.testing.assert_allclose(shares[0], [2 / 3, 1 / 3, 0])
     assert "accuracy 66.7%" in ax.get_title(loc="left")
 
@@ -206,7 +206,8 @@ def test_confusion_matrix_follows_the_given_class_order():
     ).axes[0]
     assert [t.get_text() for t in ax.get_yticklabels()] == ["1", "0"]
     np.testing.assert_array_equal(
-        ax.collections[0].get_array().reshape(2, 2), [[1, 1], [0, 1]]
+        ax.collections[0].get_array().reshape(2, 2),  # type: ignore
+        [[1, 1], [0, 1]],  # type: ignore
     )
 
 
@@ -217,12 +218,14 @@ def test_confusion_matrix_follows_the_given_class_order():
     ),
     data=st.data(),
 )
-def test_roc_and_precision_recall_report_sklearns_scores(labels: list[int], data):  # type: ignore
+def test_roc_and_precision_recall_report_sklearns_scores(
+    labels: list[int], data: st.DataObject
+):
     proba = data.draw(
         st.lists(st.floats(0, 1), min_size=len(labels), max_size=len(labels))
     )
     roc = plotting.plot_roc_curves(labels, proba).axes[0].get_title(loc="left")
-    pr = plotting.plot_precision_recall(labels, proba).axes[0].get_title(loc="left")
+    pr = plotting.plot_precision_recall(labels, proba).axes[0].get_title(loc="left")  # type: ignore
     assert _number(roc, "AUC") == pytest.approx(
         roc_auc_score(labels, proba), abs=_SHOWN
     )
@@ -236,7 +239,7 @@ def test_multiclass_roc_has_one_curve_per_class():
     actual = rng.choice(["x", "y", "z"], 300)
     proba = rng.dirichlet([1, 1, 1], 300)
     ax = plotting.plot_roc_curves(actual, proba).axes[0]
-    entries = [t.get_text() for t in ax.get_legend().get_texts()]
+    entries = [t.get_text() for t in ax.get_legend().get_texts()]  # type: ignore
     assert [e.split()[0] for e in entries] == ["x", "y", "z"]
     assert "macro AUC" in ax.get_title(loc="left")
 
@@ -245,7 +248,7 @@ def test_calibration_of_a_calibrated_model_follows_the_diagonal():
     actual, proba = _binary_data(n=20_000)
     ax = plotting.plot_calibration(actual, proba).axes[0]
     curve = next(line for line in ax.lines if line.get_marker() == "o")
-    np.testing.assert_allclose(curve.get_ydata(), curve.get_xdata(), atol=0.03)
+    np.testing.assert_allclose(curve.get_ydata(), curve.get_xdata(), atol=0.03)  # type: ignore
 
 
 def test_classification_diagnostics_has_four_panels():

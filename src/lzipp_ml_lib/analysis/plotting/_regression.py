@@ -66,7 +66,7 @@ def _draw_predicted_vs_actual(
     residual = actual - predicted
     ss_tot = ((actual - actual.mean()) ** 2).sum()
     r2 = 1 - (residual**2).sum() / ss_tot if ss_tot else float("nan")
-    ax.text(
+    ax.text(  # type: ignore
         0.03,
         0.97,
         f"R² {r2:.3f}\nMAE {np.abs(residual).mean():.4g}\n"

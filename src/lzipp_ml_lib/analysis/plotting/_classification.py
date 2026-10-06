@@ -136,10 +136,10 @@ def _draw_roc(
     for i, label, color in _curves(labels):
         fpr, tpr, _ = roc_curve(actual == label, proba[:, i])
         area = auc(fpr, tpr)
-        areas.append(area)
+        areas.append(area)  # type: ignore
         ax.plot(fpr, tpr, color=color, linewidth=2, label=f"{label} ({area:.3f})")  # type: ignore
     _square_unit_axes(ax, "False positive rate", "True positive rate")
-    if len(areas) == 1:
+    if len(areas) == 1:  # type: ignore
         ax.set_title(f"ROC  ·  AUC {areas[0]:.3f}")  # type: ignore
     else:
         ax.set_title(f"ROC (one vs rest)  ·  macro AUC {np.mean(areas):.3f}")  # type: ignore
@@ -176,7 +176,7 @@ def _draw_precision_recall(
         positive = actual == label
         precision, recall, _ = precision_recall_curve(positive, proba[:, i])
         ap = average_precision_score(positive, proba[:, i])
-        scores.append(ap)
+        scores.append(ap)  # type: ignore
         ax.plot(  # type: ignore
             recall,
             precision,
@@ -188,7 +188,7 @@ def _draw_precision_recall(
         if len(curves) == 1:
             ax.axhline(positive.mean(), color=BASELINE, linewidth=1, zorder=1)  # type: ignore
     _square_unit_axes(ax, "Recall", "Precision")
-    if len(scores) == 1:
+    if len(scores) == 1:  # type: ignore
         ax.set_title(f"Precision-recall  ·  AP {scores[0]:.3f}")  # type: ignore
     else:
         ax.set_title(f"Precision-recall  ·  mean AP {np.mean(scores):.3f}")  # type: ignore
@@ -299,7 +299,7 @@ def _prepare(
 
 
 def _classes(*arrays: np.ndarray) -> list[Any]:
-    return sorted(set().union(*(a.tolist() for a in arrays)))
+    return sorted(set().union(*(a.tolist() for a in arrays)))  # type: ignore
 
 
 def _curves(labels: list[Any]) -> list[tuple[int, Any, str]]:
