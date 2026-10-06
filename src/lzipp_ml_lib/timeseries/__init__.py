@@ -1,9 +1,8 @@
-from ._features import TimeseriesFeatures
-from ._types import (
+from ._features import (
     CalendarFeature,
     CyclicalFeature,
-    ProfileKey,
     RollingStat,
+    TimeseriesFeatures,
     TimeseriesSchema,
     TrendUnit,
 )
@@ -11,7 +10,6 @@ from ._types import (
 __all__ = [
     "CalendarFeature",
     "CyclicalFeature",
-    "ProfileKey",
     "RollingStat",
     "TimeseriesSchema",
     "TimeseriesFeatures",

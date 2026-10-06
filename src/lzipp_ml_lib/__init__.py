@@ -1,8 +1,8 @@
-from .plotting import plot_corr_heatmap, plot_kde
+from .analysis.plotting import plot_corr_heatmap, plot_kde
+from .hyperparameter import fit_xgb_classifier, fit_xgb_regressor
 from .timeseries import (
     CalendarFeature,
     CyclicalFeature,
-    ProfileKey,
     RollingStat,
     TimeseriesFeatures,
     TimeseriesSchema,
@@ -14,9 +14,10 @@ __all__ = [
     "plot_kde",
     "CalendarFeature",
     "CyclicalFeature",
-    "ProfileKey",
     "RollingStat",
     "TimeseriesFeatures",
     "TimeseriesSchema",
     "TrendUnit",
+    "fit_xgb_classifier",
+    "fit_xgb_regressor",
 ]

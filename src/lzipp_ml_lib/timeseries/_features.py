@@ -2,91 +2,44 @@ import re
 from collections.abc import Callable, Sequence
 from datetime import date, datetime
 from functools import lru_cache
-from typing import Self
+from typing import Literal, Self, TypeVar
 
 import dataframely as dy
 import holidays
 import numpy as np
 import polars as pl
 
-from ._types import (
-    CalendarFeature,
-    CyclicalFeature,
-    ProfileKey,
-    RollingStat,
-    TimeseriesSchema,
-    TrendUnit,
-)
-
-_ts = pl.col("ts")
-_hour_of_week = (_ts.dt.weekday() - 1) * 24 + _ts.dt.hour()
-
-_CALENDAR: dict[str, pl.Expr] = {
-    "quarter": _ts.dt.quarter(),
-    "month": _ts.dt.month(),
-    "week": _ts.dt.week(),
-    "day": _ts.dt.day(),
-    "day_of_year": _ts.dt.ordinal_day(),
-    "weekday": _ts.dt.weekday(),
-    "hour": _ts.dt.hour(),
-    "minute": _ts.dt.minute(),
-    "is_weekend": _ts.dt.weekday() >= 6,
-    "is_month_start": _ts.dt.day() == 1,
-    "is_month_end": _ts.dt.day() == _ts.dt.days_in_month(),
-    "days_in_month": _ts.dt.days_in_month(),
-}
-
-# name -> (position in the cycle, cycle length)
-_CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
-    "month": (_ts.dt.month(), 12),
-    "weekday": (_ts.dt.weekday(), 7),
-    "hour": (_ts.dt.hour(), 24),
-    "hour_of_week": (_hour_of_week, 168),
-    "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
-    "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
-}
-
-_PROFILE_KEYS: dict[str, pl.Expr] = {
-    "hour": _ts.dt.hour(),
-    "weekday": _ts.dt.weekday(),
-    "month": _ts.dt.month(),
-    "hour_of_week": _hour_of_week,
-    "day_of_year": _ts.dt.ordinal_day(),
-}
-
-_ROLLING: dict[str, Callable[[str], pl.Expr]] = {
-    "mean": lambda w: pl.col("val").rolling_mean_by("ts", w),
-    "std": lambda w: pl.col("val").rolling_std_by("ts", w),
-    "min": lambda w: pl.col("val").rolling_min_by("ts", w),
-    "max": lambda w: pl.col("val").rolling_max_by("ts", w),
-    "median": lambda w: pl.col("val").rolling_median_by("ts", w),
-}
-
-# Approximate unit lengths, only used to compare durations against the horizon.
-_DAY_SEC = 86400
-_YEAR_DAYS = 365.25
-_UNIT_SECONDS = {
-    "y": _YEAR_DAYS * _DAY_SEC,
-    "q": _YEAR_DAYS / 4 * _DAY_SEC,
-    "mo": _YEAR_DAYS / 12 * _DAY_SEC,
-    "w": 7 * _DAY_SEC,
-    "d": _DAY_SEC,
-    "h": 3600,
-    "m": 60,
-    "s": 1,
-}
-_DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
+_T = TypeVar("_T")
 
 
-@lru_cache()
-def _approx_seconds(duration: str) -> float:
-    parts = _DURATION.findall(duration)
-    if not parts or "".join(n + u for n, u in parts) != duration:
-        raise ValueError(
-            f"invalid duration '{duration}', expected e.g. '1d', '6h' or '1d12h' "
-            f"using units {list(_UNIT_SECONDS)}"
-        )
-    return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
+class TimeseriesSchema(dy.Schema):
+    ts = dy.Datetime(nullable=False, unique=True)
+    val = dy.Float(nullable=False, allow_inf=False, allow_nan=False)
+
+    @dy.rule()
+    def is_sorted(cls) -> pl.Expr:
+        return pl.col("ts").is_sorted(descending=False)
+
+
+CalendarFeature = Literal[
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "day_of_year",
+    "weekday",
+    "hour",
+    "minute",
+    "is_weekend",
+    "is_month_start",
+    "is_month_end",
+    "days_in_month",
+]
+CyclicalFeature = Literal[
+    "month", "weekday", "hour", "hour_of_week", "day_of_year", "day_of_month"
+]
+RollingStat = Literal["mean", "std", "min", "max", "median"]
+TrendUnit = Literal["s", "m", "h", "d"]
 
 
 class TimeseriesFeatures:
@@ -109,8 +62,8 @@ class TimeseriesFeatures:
     Features built from past values (`lag`, `rolling`, `ewm`, `gap`, and
     `exogenous` with `known_in_advance=False`) only use data available
     `horizon` before each row, so they can be computed at prediction time.
-    `trend` and `profile` use values learned by `fit`, so train and test get
-    consistent features.
+    `trend` uses values learned by `fit`, so train and test get consistent
+    features.
     """
 
     def __init__(self, horizon: str | None = None):
@@ -129,7 +82,6 @@ class TimeseriesFeatures:
         self.horizon = horizon
         self._min_year: int | None = None
         self._origin: datetime | None = None
-        self._profiles: dict[str, pl.DataFrame] = {}
 
     @staticmethod
     def prepare(
@@ -153,14 +105,14 @@ class TimeseriesFeatures:
         """
         out = lf
         if unique:
-            out = out.unique("ts", keep="first")
+            out = out.unique("ts", keep="first", maintain_order=not sort)
         if sort:
             out = out.sort(by="ts")
         info = TimeseriesSchema.filter(out, cast=True)
         return info.result, info.failure
 
     def fit(self, lf: dy.LazyFrame[TimeseriesSchema]) -> Self:
-        """Learn the training-set values used by `trend` and `profile`.
+        """Learn the training-set values used by `trend`.
 
         Collects `lf`.
 
@@ -173,12 +125,6 @@ class TimeseriesFeatures:
         df = lf.select("ts", "val").collect()
         self._min_year = df.select(_ts.dt.year().min()).item()
         self._origin = df.select(_ts.min()).item()
-        self._profiles = {
-            key: df.group_by(expr.alias("_key")).agg(
-                pl.col("val").mean().alias(f"profile_{key}")
-            )
-            for key, expr in _PROFILE_KEYS.items()
-        }
         return self
 
     def lag(
@@ -227,81 +173,141 @@ class TimeseriesFeatures:
         Raises:
             ValueError: If any lag is smaller than 1, or shorter than the horizon.
         """
-        lags = {
-            "y": yearly,
-            "mo": monthly,
-            "w": weekly,
-            "d": daily,
-            "h": hourly,
-            "m": minutely,
-            "s": secondly,
-        }
-        for unit, ns in lags.items():
-            if ns is not None and any(n < 1 for n in ns):
-                raise ValueError(
-                    f"lags must be positive integers, got {ns} for unit '{unit}'"
-                )
-        if self.horizon is not None:
-            horizon = _approx_seconds(self.horizon)
-            too_short = [
-                f"{n}{unit}"
+        lags = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        self._check_lags({unit: list(ns or ()) for unit, ns in lags.items()})
+        out = _join_lags(
+            lf,
+            [
+                (n, unit, f"lag_{n}{unit}")
                 for unit, ns in lags.items()
                 for n in ns or ()
-                if n * _UNIT_SECONDS[unit] < horizon
-            ]
-            if too_short:
-                raise ValueError(
-                    f"lags {too_short} are shorter than the horizon '{self.horizon}' "
-                    "and won't be known at prediction time"
-                )
-
-        out = lf
-        for unit, ns in lags.items():
-            for n in ns or ():
-                past = lf.select(
-                    pl.col("ts").alias("_lag_ts"), pl.col("val").alias(f"lag_{n}{unit}")
-                )
-                out = (
-                    out.with_columns(_lag_ts=pl.col("ts").dt.offset_by(f"-{n}{unit}"))
-                    .join(past, on="_lag_ts", how="left", maintain_order="left")
-                    .drop("_lag_ts")
-                )
+            ],
+        )
         return _cleanup(out, drop_ts, drop_nulls)
 
     def lag_diff(
         self,
         lf: dy.LazyFrame[TimeseriesSchema],
-        pairs: Sequence[tuple[str, str]],
-        ratio: bool = False,
+        yearly: Sequence[tuple[int, int]] | None = None,
+        monthly: Sequence[tuple[int, int]] | None = None,
+        weekly: Sequence[tuple[int, int]] | None = None,
+        daily: Sequence[tuple[int, int]] | None = None,
+        hourly: Sequence[tuple[int, int]] | None = None,
+        minutely: Sequence[tuple[int, int]] | None = None,
+        secondly: Sequence[tuple[int, int]] | None = None,
+        lags_exist: bool = False,
+        keep_lags: bool = False,
         drop_ts: bool = False,
         drop_nulls: bool = False,
     ) -> pl.LazyFrame:
-        """Add differences (and optionally ratios) between existing lag columns.
+        """Add differences between two lags of `val` in the same unit.
+
+        Each pair `(a, b)` adds the value `a` units back minus the value `b` units
+        back. The lags are looked up like in `lag`, so `lf` needs no lag columns.
 
         Args:
-            lf (dy.LazyFrame[TimeseriesSchema]): Frame that already has the lag columns,
-                e.g. the output of `lag`.
-            pairs (Sequence[tuple[str, str]]): Column pairs `(a, b)`, e.g.
-                `[("lag_1d", "lag_7d")]` adds `lag_1d_minus_lag_7d`.
-            ratio (bool): Also add `{a}_over_{b}`, null where `b` is 0. Defaults to
-                False.
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
+            yearly (Sequence[tuple[int, int]] | None): Yearly lag pairs, e.g.
+                `[(1, 2)]` adds `lag_1y_minus_lag_2y`. Defaults to None.
+            monthly (Sequence[tuple[int, int]] | None): Monthly lag pairs, named
+                `lag_{a}mo_minus_lag_{b}mo`. Defaults to None.
+            weekly (Sequence[tuple[int, int]] | None): Weekly lag pairs, named
+                `lag_{a}w_minus_lag_{b}w`. Defaults to None.
+            daily (Sequence[tuple[int, int]] | None): Daily lag pairs, e.g. `[(1, 7)]`
+                adds `lag_1d_minus_lag_7d`. Defaults to None.
+            hourly (Sequence[tuple[int, int]] | None): Hourly lag pairs, named
+                `lag_{a}h_minus_lag_{b}h`. Defaults to None.
+            minutely (Sequence[tuple[int, int]] | None): Minutely lag pairs, named
+                `lag_{a}m_minus_lag_{b}m`. Defaults to None.
+            secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
+                `lag_{a}s_minus_lag_{b}s`. Defaults to None.
+            lags_exist (bool): Use the `lag_{n}{unit}` columns already in `lf`, e.g.
+                from `lag`, instead of looking the lags up. Defaults to False.
+            keep_lags (bool): Keep the looked-up lags as `lag_{n}{unit}` columns
+                instead of dropping them. Has no effect with `lags_exist`, whose
+                columns are always kept. Defaults to False.
             drop_ts (bool): Drop `ts` from the result. Defaults to False.
             drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
 
         Returns:
-            pl.LazyFrame: `lf` with the difference (and ratio) columns appended
-                (without `ts` if `drop_ts`).
+            pl.LazyFrame: `lf` with the requested difference columns appended (without
+                `ts` if `drop_ts`).
+
+        Raises:
+            ValueError: If any lag is smaller than 1, or shorter than the horizon;
+                if `lags_exist` and a needed lag column is missing; or if
+                `keep_lags` would overwrite an existing lag column.
         """
-        features: list[pl.Expr] = []
-        for a, b in pairs:
-            features.append((pl.col(a) - pl.col(b)).alias(f"{a}_minus_{b}"))
-            if ratio:
-                features.append(
-                    pl.when(pl.col(b) != 0)
-                    .then(pl.col(a) / pl.col(b))
-                    .alias(f"{a}_over_{b}")
-                )
-        return _cleanup(lf.with_columns(features), drop_ts, drop_nulls)
+        pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        out = self._combine_lags(
+            lf, pairs, "minus", lambda a, b: a - b, lags_exist, keep_lags
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
+
+    def lag_ratios(
+        self,
+        lf: dy.LazyFrame[TimeseriesSchema],
+        yearly: Sequence[tuple[int, int]] | None = None,
+        monthly: Sequence[tuple[int, int]] | None = None,
+        weekly: Sequence[tuple[int, int]] | None = None,
+        daily: Sequence[tuple[int, int]] | None = None,
+        hourly: Sequence[tuple[int, int]] | None = None,
+        minutely: Sequence[tuple[int, int]] | None = None,
+        secondly: Sequence[tuple[int, int]] | None = None,
+        lags_exist: bool = False,
+        keep_lags: bool = False,
+        drop_ts: bool = False,
+        drop_nulls: bool = False,
+    ) -> pl.LazyFrame:
+        """Add ratios between two lags of `val` in the same unit.
+
+        Each pair `(a, b)` adds the value `a` units back divided by the value `b`
+        units back, null where the latter is 0. The lags are looked up like in
+        `lag`, so `lf` needs no lag columns.
+
+        Args:
+            lf (dy.LazyFrame[TimeseriesSchema]): Frame with `ts` and `val` columns.
+            yearly (Sequence[tuple[int, int]] | None): Yearly lag pairs, e.g.
+                `[(1, 2)]` adds `lag_1y_over_lag_2y`. Defaults to None.
+            monthly (Sequence[tuple[int, int]] | None): Monthly lag pairs, named
+                `lag_{a}mo_over_lag_{b}mo`. Defaults to None.
+            weekly (Sequence[tuple[int, int]] | None): Weekly lag pairs, named
+                `lag_{a}w_over_lag_{b}w`. Defaults to None.
+            daily (Sequence[tuple[int, int]] | None): Daily lag pairs, e.g. `[(1, 7)]`
+                adds `lag_1d_over_lag_7d`. Defaults to None.
+            hourly (Sequence[tuple[int, int]] | None): Hourly lag pairs, named
+                `lag_{a}h_over_lag_{b}h`. Defaults to None.
+            minutely (Sequence[tuple[int, int]] | None): Minutely lag pairs, named
+                `lag_{a}m_over_lag_{b}m`. Defaults to None.
+            secondly (Sequence[tuple[int, int]] | None): Secondly lag pairs, named
+                `lag_{a}s_over_lag_{b}s`. Defaults to None.
+            lags_exist (bool): Use the `lag_{n}{unit}` columns already in `lf`, e.g.
+                from `lag`, instead of looking the lags up. Defaults to False.
+            keep_lags (bool): Keep the looked-up lags as `lag_{n}{unit}` columns
+                instead of dropping them. Has no effect with `lags_exist`, whose
+                columns are always kept. Defaults to False.
+            drop_ts (bool): Drop `ts` from the result. Defaults to False.
+            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
+
+        Returns:
+            pl.LazyFrame: `lf` with the requested ratio columns appended (without `ts`
+                if `drop_ts`).
+
+        Raises:
+            ValueError: If any lag is smaller than 1, or shorter than the horizon;
+                if `lags_exist` and a needed lag column is missing; or if
+                `keep_lags` would overwrite an existing lag column.
+        """
+        pairs = _by_unit(yearly, monthly, weekly, daily, hourly, minutely, secondly)
+        out = self._combine_lags(
+            lf,
+            pairs,
+            "over",
+            lambda a, b: pl.when(b != 0).then(a / b),
+            lags_exist,
+            keep_lags,
+        )
+        return _cleanup(out, drop_ts, drop_nulls)
 
     def rolling(
         self,
@@ -492,32 +498,37 @@ class TimeseriesFeatures:
             .collect()
             .row(0)
         )
-        # Pad a year on each side so days_to/since_holiday aren't null at the edges.
         calendar = holidays.country_holidays(
             country, subdiv=subdiv, years=range(lo - 1, hi + 2)
         )
-        holiday_dates = pl.DataFrame(
+        holidays_df = pl.DataFrame(
             {"_hol": sorted(calendar.keys())}, schema={"_hol": pl.Date}
         )
+        holidays_lf = holidays_df.lazy()
         day_off = pl.col("is_holiday") | (pl.col("_date").dt.weekday() >= 6)
         days = (
-            pl.DataFrame(
+            pl.LazyFrame(
                 {
                     "_date": pl.date_range(
                         date(lo - 1, 1, 1), date(hi + 1, 12, 31), eager=True
                     )
                 }
             )
-            .with_columns(is_holiday=pl.col("_date").is_in(holiday_dates["_hol"]))
+            .with_columns(
+                is_holiday=pl.col("_date").is_in(holidays_df.get_column("_hol"))
+            )
             .join_asof(
-                holiday_dates, left_on="_date", right_on="_hol", strategy="forward"
+                holidays_lf, left_on="_date", right_on="_hol", strategy="forward"
             )
             .with_columns(
                 days_to_holiday=(pl.col("_hol") - pl.col("_date")).dt.total_days()
             )
             .drop("_hol")
             .join_asof(
-                holiday_dates, left_on="_date", right_on="_hol", strategy="backward"
+                holidays_lf,
+                left_on="_date",
+                right_on="_hol",
+                strategy="backward",
             )
             .with_columns(
                 days_since_holiday=(pl.col("_date") - pl.col("_hol")).dt.total_days()
@@ -527,7 +538,7 @@ class TimeseriesFeatures:
         )
         out = (
             lf.with_columns(_date=_ts.dt.date())
-            .join(days.lazy(), on="_date", how="left", maintain_order="left")
+            .join(days, on="_date", how="left", maintain_order="left")
             .drop("_date")
         )
         return _cleanup(out, drop_ts, drop_nulls)
@@ -569,50 +580,6 @@ class TimeseriesFeatures:
         )
         return _cleanup(out, drop_ts, drop_nulls)
 
-    def profile(
-        self,
-        lf: dy.LazyFrame[TimeseriesSchema],
-        keys: Sequence[ProfileKey] = ("hour_of_week",),
-        drop_ts: bool = False,
-        drop_nulls: bool = False,
-    ) -> pl.LazyFrame:
-        """Add the training-set mean of `val` per seasonal period (target encoding).
-
-        The means come from `fit`. On the training data itself each row's own
-        value is part of its mean, a mild leak; it's usually negligible with
-        many periods' worth of data.
-
-        Args:
-            lf (dy.LazyFrame[TimeseriesSchema]): Frame with a `ts` datetime column.
-            keys (Sequence[ProfileKey]): Periods to average over, e.g. `"hour_of_week"`
-                gives the mean for each weekday/hour combination. Defaults to
-                `("hour_of_week",)`.
-            drop_ts (bool): Drop `ts` from the result. Defaults to False.
-            drop_nulls (bool): Drops all rows containing nulls. Defaults to False.
-
-        Returns:
-            pl.LazyFrame: `lf` with `profile_{key}` columns appended (without `ts` if
-                `drop_ts`). Periods not seen in training get a null.
-
-        Raises:
-            RuntimeError: If `fit` hasn't been called.
-        """
-        if not self._profiles:
-            raise RuntimeError("call fit() before profile()")
-        out = lf
-        for key in keys:
-            out = (
-                out.with_columns(_key=_PROFILE_KEYS[key])
-                .join(
-                    self._profiles[key].lazy(),
-                    on="_key",
-                    how="left",
-                    maintain_order="left",
-                )
-                .drop("_key")
-            )
-        return _cleanup(out, drop_ts, drop_nulls)
-
     def exogenous(
         self,
         lf: dy.LazyFrame[TimeseriesSchema],
@@ -644,10 +611,13 @@ class TimeseriesFeatures:
             pl.LazyFrame: `lf` with the `exog` columns appended (without `ts` if
                 `drop_ts`).
         """
+        exog_sorted = exog.sort(by="ts", descending=False)
         if known_in_advance:
-            out = lf.join_asof(exog, on="ts", strategy="backward", tolerance=tolerance)
+            out = lf.join_asof(
+                exog_sorted, on="ts", strategy="backward", tolerance=tolerance
+            )
         else:
-            out = self._latest_available(lf, exog, tolerance)
+            out = self._latest_available(lf, exog_sorted, tolerance)
         return _cleanup(out, drop_ts, drop_nulls)
 
     def _latest_available(
@@ -659,18 +629,187 @@ class TimeseriesFeatures:
         """Join `values` (`ts` + feature columns, computed including each row's own
         observation) so every row gets the latest values known at prediction time:
         at or before `ts - horizon`, or strictly before `ts` without a horizon."""
-        cutoff = _ts if self.horizon is None else _ts.dt.offset_by(f"-{self.horizon}")
-        return (
-            lf.with_columns(_cutoff=cutoff)
-            .join_asof(
-                values.rename({"ts": "_cutoff"}),
-                on="_cutoff",
-                strategy="backward",
-                allow_exact_matches=self.horizon is not None,
-                tolerance=tolerance,
+        return _latest_available(self.horizon, lf, values, tolerance, drop_cutoff=True)
+
+    def _check_lags(self, lags: dict[str, list[int]]) -> None:
+        """Raise if a lag isn't positive or is shorter than the horizon."""
+        for unit, ns in lags.items():
+            if any(n < 1 for n in ns):
+                raise ValueError(
+                    f"lags must be positive integers, got {ns} for unit '{unit}'"
+                )
+        if self.horizon is not None:
+            horizon = _approx_seconds(self.horizon)
+            too_short = [
+                f"{n}{unit}"
+                for unit, ns in lags.items()
+                for n in ns
+                if n * _UNIT_SECONDS[unit] < horizon
+            ]
+            if too_short:
+                raise ValueError(
+                    f"lags {too_short} are shorter than the horizon '{self.horizon}' "
+                    "and won't be known at prediction time"
+                )
+
+    def _combine_lags(
+        self,
+        lf: pl.LazyFrame,
+        pairs: dict[str, Sequence[tuple[int, int]] | None],
+        op: str,
+        combine: Callable[[pl.Expr, pl.Expr], pl.Expr],
+        lags_exist: bool,
+        keep_lags: bool,
+    ) -> pl.LazyFrame:
+        """Add `lag_{a}{unit}_{op}_lag_{b}{unit}` = `combine(lag a, lag b)` for each
+        pair. The lags come from existing columns (`lags_exist`), or are looked up
+        into columns that are kept (`keep_lags`) or dropped afterwards."""
+        needed = {
+            unit: sorted({n for pair in unit_pairs or () for n in pair})
+            for unit, unit_pairs in pairs.items()
+        }
+        self._check_lags(needed)
+        lag_names = [f"lag_{n}{unit}" for unit, ns in needed.items() for n in ns]
+        existing = set(lf.collect_schema().names())
+
+        if lags_exist:
+            if missing := [name for name in lag_names if name not in existing]:
+                raise ValueError(
+                    f"lags_exist=True, but lf has no columns {missing}; "
+                    "add them with lag() first"
+                )
+            prefix, to_drop = "lag_", []
+        else:
+            if keep_lags and (clashes := [n for n in lag_names if n in existing]):
+                raise ValueError(
+                    f"keep_lags=True would overwrite the existing columns {clashes}; "
+                    "pass lags_exist=True to use them instead"
+                )
+            prefix = "lag_" if keep_lags else "_lag_"
+            lookups = [
+                (n, unit, f"{prefix}{n}{unit}")
+                for unit, ns in needed.items()
+                for n in ns
+            ]
+            lf = _join_lags(lf, lookups)
+            to_drop = [] if keep_lags else [name for _, _, name in lookups]
+
+        return lf.with_columns(
+            combine(pl.col(f"{prefix}{a}{unit}"), pl.col(f"{prefix}{b}{unit}")).alias(
+                f"lag_{a}{unit}_{op}_lag_{b}{unit}"
             )
-            .drop("_cutoff")
+            for unit, unit_pairs in pairs.items()
+            for a, b in unit_pairs or ()
+        ).drop(to_drop)
+
+
+_ts = pl.col("ts")
+# weekday() and hour() are Int8, which overflows past 127 (Saturday 08:00).
+_hour_of_week = (_ts.dt.weekday().cast(pl.Int16) - 1) * 24 + _ts.dt.hour()
+
+_CALENDAR: dict[str, pl.Expr] = {
+    "quarter": _ts.dt.quarter(),
+    "month": _ts.dt.month(),
+    "week": _ts.dt.week(),
+    "day": _ts.dt.day(),
+    "day_of_year": _ts.dt.ordinal_day(),
+    "weekday": _ts.dt.weekday(),
+    "hour": _ts.dt.hour(),
+    "minute": _ts.dt.minute(),
+    "is_weekend": _ts.dt.weekday() >= 6,
+    "is_month_start": _ts.dt.day() == 1,
+    "is_month_end": _ts.dt.day() == _ts.dt.days_in_month(),
+    "days_in_month": _ts.dt.days_in_month(),
+}
+
+# name -> (position in the cycle, cycle length)
+_CYCLICAL: dict[str, tuple[pl.Expr, float]] = {
+    "month": (_ts.dt.month(), 12),
+    "weekday": (_ts.dt.weekday(), 7),
+    "hour": (_ts.dt.hour(), 24),
+    "hour_of_week": (_hour_of_week, 168),
+    "day_of_year": (_ts.dt.ordinal_day() - 1, 365.25),
+    "day_of_month": ((_ts.dt.day() - 1) / _ts.dt.days_in_month(), 1),
+}
+
+_ROLLING: dict[str, Callable[[str], pl.Expr]] = {
+    "mean": lambda w: pl.col("val").rolling_mean_by("ts", w),
+    "std": lambda w: pl.col("val").rolling_std_by("ts", w),
+    "min": lambda w: pl.col("val").rolling_min_by("ts", w),
+    "max": lambda w: pl.col("val").rolling_max_by("ts", w),
+    "median": lambda w: pl.col("val").rolling_median_by("ts", w),
+}
+
+# Approximate unit lengths, only used to compare durations against the horizon.
+_DAY_SEC = 86400
+_YEAR_DAYS = 365.25
+_UNIT_SECONDS = {
+    "y": _YEAR_DAYS * _DAY_SEC,
+    "q": _YEAR_DAYS / 4 * _DAY_SEC,
+    "mo": _YEAR_DAYS / 12 * _DAY_SEC,
+    "w": 7 * _DAY_SEC,
+    "d": _DAY_SEC,
+    "h": 3600,
+    "m": 60,
+    "s": 1,
+}
+_DURATION = re.compile(r"(\d+)(mo|y|q|w|d|h|m|s)")
+
+
+def _latest_available(
+    horizon: str | None,
+    lf: pl.LazyFrame,
+    values: pl.LazyFrame,
+    tolerance: str | None = None,
+    drop_cutoff: bool = True,
+) -> pl.LazyFrame:
+    """Join `values` (`ts` + feature columns, computed including each row's own
+    observation) so every row gets the latest values known at prediction time:
+    at or before `ts - horizon`, or strictly before `ts` without a horizon."""
+    cutoff = (_ts if horizon is None else _ts.dt.offset_by(f"-{horizon}")).set_sorted()
+    out = lf.with_columns(_cutoff=cutoff).join_asof(
+        values.rename({"ts": "_cutoff"}),
+        on="_cutoff",
+        strategy="backward",
+        allow_exact_matches=horizon is not None,
+        tolerance=tolerance,
+    )
+    if drop_cutoff:
+        return out.drop("_cutoff")
+    return out
+
+
+@lru_cache()
+def _approx_seconds(duration: str) -> float:
+    parts = _DURATION.findall(duration)
+    if not parts or "".join(n + u for n, u in parts) != duration:
+        raise ValueError(
+            f"invalid duration '{duration}', expected e.g. '1d', '6h' or '1d12h' "
+            f"using units {list(_UNIT_SECONDS)}"
         )
+    return sum(int(n) * _UNIT_SECONDS[u] for n, u in parts)
+
+
+_LAG_UNITS = ("y", "mo", "w", "d", "h", "m", "s")
+
+
+def _by_unit(*per_unit: _T) -> dict[str, _T]:
+    """Map the per-unit arguments (yearly ... secondly) to their unit suffixes."""
+    return dict(zip(_LAG_UNITS, per_unit, strict=True))
+
+
+def _join_lags(lf: pl.LazyFrame, lags: Sequence[tuple[int, str, str]]) -> pl.LazyFrame:
+    """Add, for each `(n, unit, name)`, a column `name` with the value of `val` at
+    `ts - n units`, looked up by timestamp (null if there is none)."""
+    out = lf
+    for n, unit, name in lags:
+        past = lf.select(pl.col("ts").alias("_lag_ts"), pl.col("val").alias(name))
+        out = (
+            out.with_columns(_lag_ts=pl.col("ts").dt.offset_by(f"-{n}{unit}"))
+            .join(past, on="_lag_ts", how="left", maintain_order="left")
+            .drop("_lag_ts")
+        )
+    return out
 
 
 def _maybe_drop_ts(lf: pl.LazyFrame, drop_ts: bool) -> pl.LazyFrame:
