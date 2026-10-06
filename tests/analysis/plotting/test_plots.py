@@ -146,6 +146,16 @@ def test_category_counts_plots_string_and_boolean_columns():
     assert [t.split()[0] for t in titles] == ["group", "flag"]
 
 
+def test_category_counts_plots_numerical_columns_specified_as_categorical():
+    rng = np.random.default_rng(0)
+    df = _frame()
+    df = df.with_columns(
+        as_categorical=pl.Series(rng.binomial(n=1, p=0.5, size=df.height))
+    )
+    titles = _titles(plotting.plot_category_counts(df, as_categorical=["as_categorical"]))
+    assert [t.split()[0] for t in titles] == ["group", "flag", "as_categorical"]
+
+
 def test_category_counts_folds_the_rest_into_other_and_counts_nulls():
     df = pl.DataFrame({"v": ["a"] * 5 + ["b"] * 4 + ["c", "d", None]})
     ax = plotting.plot_category_counts(df, top_k=2).axes[0]

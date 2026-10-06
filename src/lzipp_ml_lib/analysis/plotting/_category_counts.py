@@ -12,6 +12,7 @@ from ._utils import PolarsFrame, categorical_columns, ensure_collected
 def plot_category_counts(
     data: PolarsFrame,
     columns: Sequence[str] | None = None,
+    as_categorical: Sequence[str] | None = None,
     *,
     top_k: int = 10,
 ) -> Figure:
@@ -22,6 +23,8 @@ def plot_category_counts(
     bar. Nulls get their own bar. `columns` restricts it to these columns.
     """
     df = ensure_collected(data, columns)
+    if as_categorical:
+        df = df.with_columns(pl.col(as_categorical).cast(pl.String))
     cols = categorical_columns(df)
     fig, axes = panel_grid(
         len(cols), n_cols=2, panel_size=(6, 0.32 * (min(top_k, 12) + 2) + 1.2)
@@ -35,7 +38,7 @@ def _draw_counts(ax: Axes, s: pl.Series, top_k: int) -> None:
     counts = (
         s.cast(pl.String)
         .fill_null("(null)")
-        .value_counts(sort=True, name="n")
+        .value_counts(sort=True, name="n", parallel=True)
         .rename({s.name: "value"})
     )
     n_values = counts.height
@@ -45,14 +48,17 @@ def _draw_counts(ax: Axes, s: pl.Series, top_k: int) -> None:
             [
                 counts.head(top_k),
                 pl.DataFrame(
-                    {"value": [f"other ({rest.height})"], "n": [rest["n"].sum()]},
+                    {
+                        "value": [f"other ({rest.height})"],
+                        "n": [rest.get_column("n").sum()],
+                    },
                     schema=counts.schema,
                 ),
             ]
         )
-    # reversed, so the most frequent bar ends up on top
-    labels = counts["value"].to_list()[::-1]
-    values = counts["n"].to_list()[::-1]
+    # reversed for matplotlib
+    labels = counts.get_column("value").to_list()[::-1]
+    values = counts.get_column("n").to_list()[::-1]
     colors = [
         INK_MUTED if label.startswith("other (") or label == "(null)" else ACCENT
         for label in labels
@@ -67,7 +73,7 @@ def _draw_counts(ax: Axes, s: pl.Series, top_k: int) -> None:
         color=INK_SECONDARY,
     )
     ax.set_xlim(0, max(values, default=1) * 1.15)
-    # one slot per possible bar, so bars keep their thickness however few there are
+    # one slot per possible bar, so bars always keep same thickness
     slots = min(top_k, 12) + 1
     ax.set_ylim(len(labels) - slots - 0.5, len(labels) - 0.5)
     ax.grid(axis="y", visible=False)  # type: ignore
