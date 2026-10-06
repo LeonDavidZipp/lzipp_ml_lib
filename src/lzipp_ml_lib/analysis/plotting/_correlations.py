@@ -8,7 +8,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from ._style import DIVERGING, INK_SECONDARY, SURFACE, figure_and_axes, styled
-from ._utils import PolarsFrame, ensure_collected, numeric_columns
+from ._utils import PolarsFrame, numeric_columns, prepare_and_collect
 
 
 @styled
@@ -41,7 +41,7 @@ def plot_corr_heatmap(
     Raises:
         ValueError: If fewer than two of the selected columns are numeric.
     """
-    df = ensure_collected(data, columns)
+    df = prepare_and_collect(data, columns)
     cols = numeric_columns(df)
     if len(cols) < 2:
         raise ValueError("a correlation heatmap needs at least two numeric columns")

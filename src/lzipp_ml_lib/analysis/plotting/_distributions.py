@@ -19,10 +19,10 @@ from ._style import (
 )
 from ._utils import (
     PolarsFrame,
-    ensure_collected,
     maybe_sample,
     numeric_columns,
     panel_values,
+    prepare_and_collect,
 )
 
 
@@ -302,7 +302,7 @@ def _panels(
     plottable rows. Box and violin plots name their groups on the y axis, so they
     skip the colour legend."""
     keep = (by,) if by is not None else ()
-    df = maybe_sample(ensure_collected(data, columns, keep=keep), sample)
+    df = maybe_sample(prepare_and_collect(data, columns, keep=keep), sample)
     cols = numeric_columns(df, exclude=keep)
     palette = group_palette(df, by) if by is not None else {}
     if by is not None:

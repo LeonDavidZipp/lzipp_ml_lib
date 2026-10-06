@@ -5,7 +5,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from ._style import ACCENT, INK_MUTED, INK_SECONDARY, panel_grid, styled
-from ._utils import PolarsFrame, categorical_columns, ensure_collected
+from ._utils import PolarsFrame, categorical_columns, prepare_and_collect
 
 
 @styled
@@ -34,7 +34,7 @@ def plot_category_counts(
     Raises:
         ValueError: If none of the selected columns is categorical.
     """
-    df = ensure_collected(data, columns)
+    df = prepare_and_collect(data, columns)
     if as_categorical:
         df = df.with_columns(pl.col(as_categorical).cast(pl.String))
     cols = categorical_columns(df)

@@ -25,10 +25,10 @@ from ._style import (
 from ._utils import (
     PolarsFrame,
     default_period,
-    ensure_collected,
     infer_interval,
+    make_timeseries_frame,
     numeric_columns,
-    series_frame,
+    prepare_and_collect,
 )
 
 
@@ -50,7 +50,7 @@ def plot_timeseries_grid(
     Raises:
         ValueError: If none of the selected columns is numeric.
     """
-    df = ensure_collected(data, columns, keep=(time_col,)).sort(time_col)
+    df = prepare_and_collect(data, columns, keep=(time_col,)).sort(time_col)
     cols = numeric_columns(df, exclude=(time_col,))
     fig, axes = panel_grid(len(cols), n_cols=1, panel_size=(12, 2.4))
     ts = df[time_col].to_numpy()
@@ -86,7 +86,7 @@ def plot_missing_values(
     Returns:
         Figure: The figure.
     """
-    df = ensure_collected(data, columns)
+    df = prepare_and_collect(data, columns)
     missing = (
         df.null_count()
         .transpose(include_header=True, header_name="column", column_names=["nulls"])
@@ -138,7 +138,7 @@ def plot_autocorrelation(
     Returns:
         Figure: The figure.
     """
-    series = ensure_collected(data).get_column(target_col).drop_nulls().to_numpy()
+    series = prepare_and_collect(data).get_column(target_col).drop_nulls().to_numpy()
     fig, ax = figure_and_axes(ax, (12, 3.6))
     plot_acf(series, lags=lags, ax=ax, alpha=0.05, **_correlogram_kws())
     _style_correlogram(ax, f"Autocorrelation of {target_col}")
@@ -172,7 +172,7 @@ def plot_partial_autocorrelation(
     Returns:
         Figure: The figure.
     """
-    series = ensure_collected(data).get_column(target_col).drop_nulls().to_numpy()
+    series = prepare_and_collect(data).get_column(target_col).drop_nulls().to_numpy()
     fig, ax = figure_and_axes(ax, (12, 3.6))
     plot_pacf(series, lags=lags, ax=ax, alpha=0.05, method="ywm", **_correlogram_kws())
     _style_correlogram(ax, f"Partial autocorrelation of {target_col}")
@@ -230,7 +230,7 @@ def plot_rolling_stats(
     Returns:
         Figure: The figure.
     """
-    df = series_frame(data, time_col, target_col)
+    df = make_timeseries_frame(data, time_col, target_col)
     if window is None:
         interval = infer_interval(df[time_col])
         window = f"{round(default_period(interval) * interval.total_seconds())}s"
@@ -300,7 +300,7 @@ def plot_gaps(
     Returns:
         Figure: The figure.
     """
-    ts = ensure_collected(data, [time_col])[time_col].drop_nulls().sort()
+    ts = prepare_and_collect(data, [time_col])[time_col].drop_nulls().sort()
     n_duplicates = ts.len() - ts.n_unique()
     ts = ts.unique(maintain_order=True)
     step = _as_timedelta(interval) if interval is not None else infer_interval(ts)

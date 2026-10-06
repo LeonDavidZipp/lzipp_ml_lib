@@ -3,7 +3,7 @@ from typing import Any
 
 import polars as pl
 
-from .plotting._utils import PolarsFrame, ensure_collected
+from .plotting._utils import PolarsFrame, prepare_and_collect
 
 _SUMMARY_SCHEMA: dict[str, Any] = {
     "column": pl.String,
@@ -43,7 +43,7 @@ def summarize(data: PolarsFrame, columns: Sequence[str] | None = None) -> pl.Dat
             null_pct, n_unique, mean, std, min, p25, median, p75, max, skew and
             zeros_pct.
     """
-    df = ensure_collected(data, columns)
+    df = prepare_and_collect(data, columns)
     rows = [_summary_row(df[col], df.height) for col in df.columns]
     return pl.DataFrame(rows, schema=_SUMMARY_SCHEMA, orient="row")
 

@@ -10,7 +10,7 @@ from numpy.typing import ArrayLike
 PolarsFrame = pl.DataFrame | pl.LazyFrame
 
 
-def ensure_collected(
+def prepare_and_collect(
     data: PolarsFrame,
     columns: Sequence[str] | None = None,
     keep: Sequence[str] | None = None,
@@ -114,7 +114,9 @@ def panel_values(
     return sub
 
 
-def series_frame(data: PolarsFrame, time_col: str, target_col: str) -> pl.DataFrame:
+def make_timeseries_frame(
+    data: PolarsFrame, time_col: str, target_col: str
+) -> pl.DataFrame:
     """Selects the time and target columns, sorted by time, without null targets.
 
     Args:
@@ -126,7 +128,7 @@ def series_frame(data: PolarsFrame, time_col: str, target_col: str) -> pl.DataFr
         pl.DataFrame: The two columns, sorted by time.
     """
     return (
-        ensure_collected(data, [target_col], keep=(time_col,))
+        prepare_and_collect(data, [target_col], keep=(time_col,))
         .filter(pl.col(target_col).is_not_null())
         .sort(time_col)
     )

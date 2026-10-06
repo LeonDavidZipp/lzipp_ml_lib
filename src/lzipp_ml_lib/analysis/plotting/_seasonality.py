@@ -20,10 +20,8 @@ from ._style import (
     panel_grid,
     styled,
 )
-from ._utils import PolarsFrame, default_period, infer_interval, series_frame
+from ._utils import PolarsFrame, default_period, infer_interval, make_timeseries_frame
 
-# STL is compiled (Cython) and ships without type information, so the checker sees
-# it as Unknown; typing both as Any says that's deliberate
 _STL: Any = cast(Any, _seasonal).STL
 _MSTL: Any = cast(Any, _seasonal).MSTL
 
@@ -34,7 +32,7 @@ CalendarUnit = Literal[
 _UNIT_EXPR: Mapping[str, Callable[[str], pl.Expr]] = {
     "minute": lambda t: pl.col(t).dt.minute(),
     "hour": lambda t: pl.col(t).dt.hour(),
-    "weekday": lambda t: pl.col(t).dt.weekday(),  # 1 = Monday
+    "weekday": lambda t: pl.col(t).dt.weekday(),
     "day": lambda t: pl.col(t).dt.day(),
     "week": lambda t: pl.col(t).dt.week(),
     "month": lambda t: pl.col(t).dt.month(),
@@ -94,7 +92,7 @@ def plot_seasonal_profile(
     Returns:
         Figure: The figure.
     """
-    df = series_frame(data, time_col, target_col)
+    df = make_timeseries_frame(data, time_col, target_col)
     units = [rows] if cols is None else [rows, cols]
     df = df.with_columns(**{u: _UNIT_EXPR[u](time_col) for u in units})
     value = pl.col(target_col).mean() if agg == "mean" else pl.col(target_col).median()
@@ -205,7 +203,7 @@ def plot_decomposition(
         ValueError: If the series spans fewer than two of the longest period, or has
             fewer than two timestamps.
     """
-    df = series_frame(data, time_col, target_col)
+    df = make_timeseries_frame(data, time_col, target_col)
     interval = infer_interval(df[time_col])
     regular = (
         df.group_by(time_col)

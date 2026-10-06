@@ -15,9 +15,9 @@ from ._style import ACCENT, ACCENT_WASH, INK_MUTED, SURFACE, panel_grid, styled
 from ._utils import (
     PolarsFrame,
     categorical_columns,
-    ensure_collected,
     maybe_sample,
     numeric_columns,
+    prepare_and_collect,
 )
 
 
@@ -63,7 +63,7 @@ def plot_feature_target(
         ValueError: If `target` isn't numeric or boolean, or if `log_x` names a feature
             that isn't a numeric one of the plot.
     """
-    df = maybe_sample(ensure_collected(data, columns, keep=(target,)), sample)
+    df = maybe_sample(prepare_and_collect(data, columns, keep=(target,)), sample)
     if df[target].dtype == pl.Boolean:
         df = df.with_columns(pl.col(target).cast(pl.Float64))
     if not df[target].dtype.is_numeric():
