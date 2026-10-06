@@ -14,6 +14,12 @@ from ._distributions import (
     plot_violinplots,
 )
 from ._model import plot_feature_importance, plot_learning_curves
+from ._plotters import (
+    ClassifierPlotter,
+    EDAPlotter,
+    RegressionPlotter,
+    TimeSeriesPlotter,
+)
 from ._regression import plot_forecast, plot_regression_diagnostics
 from ._seasonality import plot_decomposition, plot_seasonal_profile
 from ._style import styled
@@ -28,6 +34,10 @@ from ._timeseries import (
 )
 
 __all__ = [
+    "EDAPlotter",
+    "TimeSeriesPlotter",
+    "ClassifierPlotter",
+    "RegressionPlotter",
     "plot_category_counts",
     "styled",
     "plot_corr_heatmap",
