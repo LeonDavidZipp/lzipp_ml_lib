@@ -140,7 +140,7 @@ def figure_and_axes(
     if ax is not None:
         _restyle_axes(ax)
         return ax.get_figure(root=True), ax  # type: ignore
-    fig = plt.figure(figsize=figsize, layout="constrained")
+    fig = plt.figure(figsize=figsize, layout="constrained")  # type: ignore
     return fig, fig.add_subplot()  # type: ignore
 
 

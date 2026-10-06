@@ -17,6 +17,7 @@ from ._model import plot_feature_importance, plot_learning_curves
 from ._plotters import (
     ClassifierPlotter,
     EDAPlotter,
+    ModelPlotter,
     RegressionPlotter,
     TimeSeriesPlotter,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "TimeSeriesPlotter",
     "ClassifierPlotter",
     "RegressionPlotter",
+    "ModelPlotter",
     "plot_category_counts",
     "styled",
     "plot_corr_heatmap",

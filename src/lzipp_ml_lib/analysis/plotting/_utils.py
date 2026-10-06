@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -99,8 +100,9 @@ def default_period(interval: timedelta) -> int:
     return 4
 
 
-# what the evaluation plots take for labels, predictions and probabilities
-Values = ArrayLike | pl.Series | pl.DataFrame
+# what the evaluation plots take for labels, predictions, probabilities and
+# timestamps (numpy's ArrayLike alone doesn't cover lists of datetimes)
+Values = ArrayLike | Sequence[Any] | pl.Series | pl.DataFrame
 
 
 def as_1d(values: Values, name: str) -> np.ndarray:
