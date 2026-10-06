@@ -28,8 +28,7 @@ from ._style import (
 )
 from ._utils import Values, as_1d, as_proba, same_length
 
-# the sequential ramp, but starting near the surface, so empty cells recede
-_CONFUSION = LinearSegmentedColormap.from_list(
+_CONFUSION = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_confusion", ["#f4f8fd", *SEQUENTIAL(np.linspace(0.15, 1, 6))]
 )
 

@@ -33,12 +33,9 @@ CATEGORICAL = [
     "#4a3aa7",
     "#e34948",
 ]
-
 DIVERGING = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_diverging", ["#a3302f", "#e34948", "#f0efec", "#2a78d6", "#104281"]
 )
-
-# one hue, light -> dark, for magnitudes (e.g. a seasonal profile heatmap)
 SEQUENTIAL = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_sequential",
     ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
@@ -153,7 +150,6 @@ def _restyle_axes(ax: Axes) -> None:
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(BASELINE)
     ax.spines["bottom"].set_linewidth(0.8)  # type: ignore
-    # set the grid's look on both axes, so whichever one a plot turns on matches
     ax.grid(axis="both", color=GRID, linewidth=0.8, linestyle="-")  # type: ignore
     ax.xaxis.grid(False)  # type: ignore
     ax.set_axisbelow(True)

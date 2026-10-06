@@ -158,7 +158,7 @@ def _style_correlogram(ax: Axes, title: str) -> None:
             coll.set_facecolor(ACCENT_WASH)
             coll.set_edgecolor("none")
     for line in ax.lines:  # type: ignore
-        if line.get_marker() in ("None", None, ""):  # the zero line
+        if line.get_marker() in ("None", None, ""):  # type: ignore
             line.set_color(BASELINE)  # type: ignore
             line.set_linewidth(0.8)  # type: ignore
     ax.set_title(title)  # type: ignore
@@ -213,7 +213,12 @@ def plot_rolling_stats(
     # the raw series as quiet context: on long series it's a dense block
     top.plot(ts, df[target_col], color=GRID, linewidth=0.5, zorder=1)  # type: ignore
     top.fill_between(  # type: ignore
-        ts, mean_v - std_v, mean_v + std_v, color=ACCENT_WASH, linewidth=0, zorder=2
+        ts,
+        mean_v - std_v,  # type: ignore
+        mean_v + std_v,  # type: ignore
+        color=ACCENT_WASH,
+        linewidth=0,
+        zorder=2,
     )
     top.plot(ts, mean_v, color=ACCENT, linewidth=1.5, zorder=3)  # type: ignore
     top.set_title(f"{target_col} · rolling mean ± std ({label})")  # type: ignore
@@ -268,7 +273,7 @@ def plot_gaps(
             ax.set_yscale("log")  # type: ignore
         else:
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_ylim(bottom=0.8 if ax.get_yscale() == "log" else 0)  # type: ignore[operator]  # broken matplotlib-stubs
+        ax.set_ylim(bottom=0.8 if ax.get_yscale() == "log" else 0)  # type: ignore[operator]
     else:
         ax.text(  # type: ignore
             0.5,
