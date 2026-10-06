@@ -79,8 +79,8 @@ def test_as_proba_takes_a_flat_input_as_the_positive_class():
 def test_regression_diagnostics_report_sklearns_r2(seed: int, n: int):
     actual, predicted = _regression_data(n, seed)
     fig = plotting.plot_regression_diagnostics(actual, predicted)
-    text = fig.axes[0].texts[0].get_text()
-    assert _number(text, "R²") == pytest.approx(r2_score(actual, predicted), abs=_SHOWN)
+    text = fig.axes[0].texts[0].get_text()  # type: ignore
+    assert _number(text, "R²") == pytest.approx(r2_score(actual, predicted), abs=_SHOWN)  # type: ignore
     plt.close(fig)
 
 
@@ -101,7 +101,7 @@ def test_regression_diagnostics_switch_to_hexbin_for_many_points(
 ):
     monkeypatch.setattr(_regression, "_HEXBIN_FROM", 100)
     fig = plotting.plot_regression_diagnostics(*_regression_data(n=300))
-    assert any(isinstance(c, PolyCollection) for c in fig.axes[0].collections)
+    assert any(isinstance(c, PolyCollection) for c in fig.axes[0].collections)  # type: ignore
 
 
 def test_regression_diagnostics_reject_different_lengths():
@@ -112,21 +112,21 @@ def test_regression_diagnostics_reject_different_lengths():
 def test_forecast_sorts_by_time():
     ts = [datetime(2024, 1, 1) + timedelta(hours=h) for h in [2, 0, 1]]
     fig = plotting.plot_forecast([20.0, 0.0, 10.0], [21.0, 1.0, 11.0], ts)  # type: ignore
-    np.testing.assert_array_equal(fig.axes[0].lines[0].get_ydata(), [0, 10, 20])
+    np.testing.assert_array_equal(fig.axes[0].lines[0].get_ydata(), [0, 10, 20])  # type: ignore
 
 
 def test_forecast_breaks_lines_at_gaps():
     hours = [0, 1, 2, 3, 10, 11, 12]
     ts = pl.Series([datetime(2024, 1, 1) + timedelta(hours=h) for h in hours])
     fig = plotting.plot_forecast(np.arange(7.0), np.arange(7.0), ts)
-    actual = np.asarray(fig.axes[0].lines[0].get_ydata(), dtype=float)
-    assert np.isnan(actual).sum() == 1
+    actual = np.asarray(fig.axes[0].lines[0].get_ydata(), dtype=float)  # type: ignore
+    assert np.isnan(actual).sum() == 1  # type: ignore
     assert np.isnan(actual[4])  # between hour 3 and hour 10
 
 
 def test_forecast_without_timestamps_uses_the_row_number():
     fig = plotting.plot_forecast([1.0, 2.0, 3.0], [1.0, 2.0, 2.0])
-    np.testing.assert_array_equal(fig.axes[0].lines[0].get_xdata(), [0, 1, 2])
+    np.testing.assert_array_equal(fig.axes[0].lines[0].get_xdata(), [0, 1, 2])  # type: ignore
     assert fig.axes[1].get_xlabel() == "Row"
 
 
@@ -196,7 +196,7 @@ def test_confusion_matrix_colours_are_row_shares():
     predicted = ["a", "a", "b", "b", "c", "c"]
     ax = plotting.plot_confusion_matrix(actual, predicted).axes[0]
     shares = ax.collections[0].get_array().reshape(3, 3)  # type: ignore
-    np.testing.assert_allclose(shares[0], [2 / 3, 1 / 3, 0])
+    np.testing.assert_allclose(shares[0], [2 / 3, 1 / 3, 0])  # type: ignore
     assert "accuracy 66.7%" in ax.get_title(loc="left")
 
 
@@ -247,7 +247,7 @@ def test_multiclass_roc_has_one_curve_per_class():
 def test_calibration_of_a_calibrated_model_follows_the_diagonal():
     actual, proba = _binary_data(n=20_000)
     ax = plotting.plot_calibration(actual, proba).axes[0]
-    curve = next(line for line in ax.lines if line.get_marker() == "o")
+    curve = next(line for line in ax.lines if line.get_marker() == "o")  # type: ignore
     np.testing.assert_allclose(curve.get_ydata(), curve.get_xdata(), atol=0.03)  # type: ignore
 
 

@@ -152,7 +152,9 @@ def test_category_counts_plots_numerical_columns_specified_as_categorical():
     df = df.with_columns(
         as_categorical=pl.Series(rng.binomial(n=1, p=0.5, size=df.height))
     )
-    titles = _titles(plotting.plot_category_counts(df, as_categorical=["as_categorical"]))
+    titles = _titles(
+        plotting.plot_category_counts(df, as_categorical=["as_categorical"])
+    )
     assert [t.split()[0] for t in titles] == ["group", "flag", "as_categorical"]
 
 

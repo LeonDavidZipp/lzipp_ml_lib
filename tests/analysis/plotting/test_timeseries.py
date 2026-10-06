@@ -93,8 +93,8 @@ def test_pacf_of_an_ar1_series_cuts_off_after_lag_1():
     ax = plotting.plot_partial_autocorrelation(
         pl.DataFrame({"y": y}), "y", lags=5
     ).axes[0]
-    (markers,) = [line for line in ax.lines if line.get_marker() == "o"]
-    pacf = markers.get_ydata()
+    (markers,) = [line for line in ax.lines if line.get_marker() == "o"]  # type: ignore
+    pacf = markers.get_ydata()  # type: ignore
     assert pacf[1] == pytest.approx(0.8, abs=0.05)  # type: ignore
     assert np.all(np.abs(pacf[2:]) < 0.1)  # type: ignore
 
@@ -131,7 +131,7 @@ def test_seasonal_profile_heatmap_holds_the_mean_per_cell():
 
 def test_seasonal_profile_line_recovers_the_daily_cycle():
     ax = plotting.plot_seasonal_profile(_hourly(), cols=None, rows="hour").axes[0]
-    means = ax.lines[0].get_ydata()
+    means = ax.lines[0].get_ydata()  # type: ignore
     assert len(means) == 24  # type: ignore
     expected = 100 + 10 * np.sin(2 * np.pi * np.arange(24) / 24)
     np.testing.assert_allclose(means, expected, atol=1)  # type: ignore
@@ -157,7 +157,7 @@ def test_seasonal_profile_median_differs_from_mean_on_outliers():
 def test_decomposition_components_add_up_to_the_series():
     fig = plotting.plot_decomposition(_hourly())
     assert _titles(fig) == ["val", "trend", "seasonal · period 24", "residual"]
-    observed, trend, seasonal, resid = (ax.lines[0].get_ydata() for ax in fig.axes)
+    observed, trend, seasonal, resid = (ax.lines[0].get_ydata() for ax in fig.axes)  # type: ignore
     np.testing.assert_allclose(trend + seasonal + resid, observed)  # type: ignore
     assert np.ptp(seasonal) == pytest.approx(20, rel=0.15)  # type: ignore # the 2 x 10 amplitude
 
@@ -170,7 +170,7 @@ def test_decomposition_with_several_periods_gets_one_panel_each():
 def test_decomposition_interpolates_gaps_and_says_so():
     df = _hourly().filter(~pl.int_range(pl.len()).is_in([100, 101, 300]))
     fig = plotting.plot_decomposition(df)
-    assert [t.get_text() for t in fig.texts] == ["3 missing steps interpolated"]
+    assert [t.get_text() for t in fig.texts] == ["3 missing steps interpolated"]  # type: ignore
     assert len(fig.axes[0].lines[0].get_ydata()) == _hourly().height  # type: ignore
 
 
@@ -187,7 +187,7 @@ def test_decomposition_needs_two_full_periods():
 def test_rolling_stats_default_window_is_one_period():
     fig = plotting.plot_rolling_stats(_hourly())
     assert _titles(fig) == ["val · rolling mean ± std (1d)", "Rolling std (1d)"]
-    mean = fig.axes[0].lines[1].get_ydata()
+    mean = fig.axes[0].lines[1].get_ydata()  # type: ignore
     # a full day averages the daily sine out, leaving the level
     assert np.nanmax(np.abs(mean - 100)) < 1  # type: ignore
 
@@ -195,7 +195,7 @@ def test_rolling_stats_default_window_is_one_period():
 @pytest.mark.parametrize("window", ["1d", 24])
 def test_rolling_stats_draw_nothing_until_the_first_full_window(window: str | int):
     fig = plotting.plot_rolling_stats(_hourly(), window=window)
-    std = np.asarray(fig.axes[1].lines[0].get_ydata(), dtype=float)
+    std = np.asarray(fig.axes[1].lines[0].get_ydata(), dtype=float)  # type: ignore
     assert np.isnan(std[:23]).all()
     assert not np.isnan(std[24:]).any()
 
@@ -221,7 +221,7 @@ def test_gaps_finds_every_run_of_missing_steps(removed: set[int], duplicates: in
             runs[-1] += 1
         else:
             runs.append(1)
-    stems: list[float] = list(np.asarray(ax.lines[0].get_ydata())) if runs else []
+    stems: list[float] = list(np.asarray(ax.lines[0].get_ydata())) if runs else []  # type: ignore
     assert sorted(stems) == sorted(runs)
     title = ax.get_title(loc="left")
     assert f"{len(runs)} gaps" in title
@@ -232,5 +232,5 @@ def test_gaps_finds_every_run_of_missing_steps(removed: set[int], duplicates: in
 
 def test_gaps_without_gaps_says_so():
     ax = plotting.plot_gaps(_hourly()).axes[0]
-    assert [t.get_text() for t in ax.texts] == ["No gaps"]
+    assert [t.get_text() for t in ax.texts] == ["No gaps"]  # type: ignore
     assert "expected every 1h" in ax.get_title(loc="left")
