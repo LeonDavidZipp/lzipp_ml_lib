@@ -1,4 +1,4 @@
-from ._features import (
+from ._timeseries import (
     CalendarFeature,
     CyclicalFeature,
     RollingStat,

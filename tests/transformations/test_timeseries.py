@@ -11,7 +11,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from lzipp_ml_lib import RollingStat, TimeseriesFeatures, TimeseriesSchema
-from lzipp_ml_lib.timeseries._features import _latest_available  # type: ignore
+from lzipp_ml_lib.transformation._timeseries import _latest_available  # type: ignore
 from tests.composites import BASIC_SETTINGS, SAMPLE_SETTINGS
 
 from .composites import (

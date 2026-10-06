@@ -6,7 +6,7 @@ import polars.testing as plt
 import pytest
 from hypothesis import example, given
 
-from lzipp_ml_lib.timeseries._features import (
+from lzipp_ml_lib.transformation._timeseries import (
     _approx_seconds,  # type: ignore
     _cleanup,  # type: ignore
     _maybe_drop_nulls,  # type: ignore
