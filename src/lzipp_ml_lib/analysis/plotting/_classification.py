@@ -32,14 +32,6 @@ _CONFUSION = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_confusion", ["#f4f8fd", *SEQUENTIAL(np.linspace(0.15, 1, 6))]
 )
 
-# Shared by the probability plots:
-#   y_proba  the predicted probabilities, as from `predict_proba`: (n, n_classes),
-#            or (n,) for the positive class of a binary problem.
-#   classes  the class each probability column belongs to; by default the sorted
-#            distinct values of y_true (which is also predict_proba's order).
-# Binary problems get one curve, for the positive (second) class. Multiclass
-# problems get one curve per class, each class against the rest (at most 8).
-
 
 @styled
 def plot_confusion_matrix(
@@ -50,13 +42,26 @@ def plot_confusion_matrix(
     normalize: bool = True,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots how often each actual class (rows) was predicted as each class
-    (columns), with the accuracy in the title.
+    """Plots how often each actual class (rows) was predicted as each class (columns),
+    with the accuracy in the title.
 
-    With `normalize` (the default), colours and the big number are each row's
-    share, so a diagonal cell is that class's recall, and rare classes stay
-    readable; the count is shown below it. `classes` fixes which classes and in
-    what order. With `ax`, it's drawn there.
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_pred (Values): The predicted labels, in the same forms as `y_true`.
+        classes (Sequence[Any] | None): The classes to show, in this order. If None, the
+            sorted distinct labels of `y_true` and `y_pred`. Defaults to None.
+        normalize (bool): Whether colours and the big number show each row's share, so a
+            diagonal cell is that class's recall and rare classes stay readable; the
+            count is shown below it. If False, raw counts. Defaults to True.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the inputs differ in length.
     """
     actual = as_1d(y_true, "y_true")
     predicted = as_1d(y_pred, "y_pred")
@@ -116,10 +121,28 @@ def plot_roc_curves(
     classes: Sequence[Any] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots the ROC curve: the true positive rate against the false positive rate
-    as the decision threshold moves, with the area under it (AUC) in the legend or
-    title. The diagonal is guessing. See the module comment for the inputs. With
-    `ax`, it's drawn there.
+    """Plots the ROC curve: the true positive rate against the false positive rate as
+    the decision threshold moves, with the area under it (AUC) in the legend or title.
+    The diagonal is guessing. Binary problems get one curve, for the positive (second)
+    class; multiclass problems one curve per class, each against the rest.
+
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_proba (Values): The predicted probabilities, as from `predict_proba`: (n,
+            n_classes), or (n,) for the positive class of a binary problem.
+        classes (Sequence[Any] | None): The labels of `y_proba`'s columns, in order. If
+            None, the sorted distinct labels of `y_true`, which is also
+            `predict_proba`'s order. Defaults to None.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the number of classes doesn't match `y_proba`'s columns, if there
+            are more than 8 classes, or if the inputs differ in length.
     """
     actual, proba, labels = _prepare(y_true, y_proba, classes)
     fig, ax = figure_and_axes(ax, (5.2, 5))
@@ -153,12 +176,29 @@ def plot_precision_recall(
     classes: Sequence[Any] | None = None,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots precision against recall as the decision threshold moves, with the
-    average precision (AP) in the legend or title.
+    """Plots precision against recall as the decision threshold moves, with the average
+    precision (AP) in the legend or title. More telling than ROC for rare positives: a
+    classifier that guesses sits at the positives' share (the gray line, binary only),
+    not at 0.5. Binary problems get one curve, for the positive (second) class;
+    multiclass problems one curve per class, each against the rest.
 
-    More telling than ROC for rare positives: a classifier that guesses sits at
-    the positives' share (the gray line, binary only), not at 0.5. See the module
-    comment for the inputs. With `ax`, it's drawn there.
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_proba (Values): The predicted probabilities, as from `predict_proba`: (n,
+            n_classes), or (n,) for the positive class of a binary problem.
+        classes (Sequence[Any] | None): The labels of `y_proba`'s columns, in order. If
+            None, the sorted distinct labels of `y_true`, which is also
+            `predict_proba`'s order. Defaults to None.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the number of classes doesn't match `y_proba`'s columns, if there
+            are more than 8 classes, or if the inputs differ in length.
     """
     actual, proba, labels = _prepare(y_true, y_proba, classes)
     fig, ax = figure_and_axes(ax, (5.2, 5))
@@ -203,13 +243,31 @@ def plot_calibration(
     n_bins: int = 10,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots how often the class actually occurs against its predicted probability,
-    in `n_bins` bins of equally many predictions.
+    """Plots how often a class actually occurs against its predicted probability. On the
+    diagonal, a predicted 70% means 70% of the time; below it the model is
+    overconfident, above it underconfident. For binary problems, gray bars at the bottom
+    show where the predictions fall. Binary problems get one curve, for the positive
+    (second) class; multiclass problems one curve per class, each against the rest.
 
-    On the diagonal, a predicted 70% means 70% of the time; below it the model is
-    overconfident, above it underconfident. For binary problems, the gray bars at
-    the bottom show where the predictions fall. See the module comment for the
-    inputs. With `ax`, it's drawn there.
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_proba (Values): The predicted probabilities, as from `predict_proba`: (n,
+            n_classes), or (n,) for the positive class of a binary problem.
+        classes (Sequence[Any] | None): The labels of `y_proba`'s columns, in order. If
+            None, the sorted distinct labels of `y_true`, which is also
+            `predict_proba`'s order. Defaults to None.
+        n_bins (int): The number of bins, each with equally many predictions. Defaults
+            to 10.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the number of classes doesn't match `y_proba`'s columns, if there
+            are more than 8 classes, or if the inputs differ in length.
     """
     actual, proba, labels = _prepare(y_true, y_proba, classes)
     fig, ax = figure_and_axes(ax, (5.2, 5))
@@ -263,9 +321,24 @@ def plot_classification_diagnostics(
     *,
     classes: Sequence[Any] | None = None,
 ) -> Figure:
-    """Plots the confusion matrix (of the most probable class), ROC,
-    precision-recall and calibration together. See the module comment for the
-    inputs and the single plots for how to read them.
+    """Plots the confusion matrix (of the most probable class), ROC, precision-recall
+    and calibration together. See the single plots for how to read them.
+
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_proba (Values): The predicted probabilities, as from `predict_proba`: (n,
+            n_classes), or (n,) for the positive class of a binary problem.
+        classes (Sequence[Any] | None): The labels of `y_proba`'s columns, in order. If
+            None, the sorted distinct labels of `y_true`, which is also
+            `predict_proba`'s order. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the number of classes doesn't match `y_proba`'s columns, if there
+            are more than 8 classes, or if the inputs differ in length.
     """
     actual, proba, labels = _prepare(y_true, y_proba, classes)
     predicted = np.asarray(labels)[proba.argmax(axis=1)]

@@ -15,10 +15,19 @@ def ensure_collected(
     columns: Sequence[str] | None = None,
     keep: Sequence[str] | None = None,
 ) -> pl.DataFrame:
-    """Evaluates LazyFrames to DataFrames, passes DataFrames through.
+    """Collects LazyFrames into DataFrames and passes DataFrames through. With
+    `columns`, only those are selected, before collecting, so a LazyFrame only computes
+    what is plotted.
 
-    With `columns`, only those columns (plus any in `keep` that aren't among them)
-    are selected, before collecting, so a LazyFrame only computes what is plotted.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data.
+        columns (Sequence[str] | None): Columns to select, in this order. If None, all
+            are kept. Defaults to None.
+        keep (Sequence[str] | None): Columns that are not in the columns being plotted,
+            but needed for the plot nonetheless (i.e. the x-axis labels).
+
+    Returns:
+        pl.DataFrame: The collected data.
     """
     if columns is not None:
         data = data.select(*[c for c in (keep or []) if c not in columns], *columns)
@@ -28,12 +37,29 @@ def ensure_collected(
 
 
 def numeric_columns(df: pl.DataFrame, exclude: tuple[str, ...] = ()) -> list[str]:
+    """Lists the numeric columns of `df`.
+
+    Args:
+        df (pl.DataFrame): The data.
+        exclude (tuple[str, ...]): Columns to leave out. Defaults to ().
+
+    Returns:
+        list[str]: The numeric columns, in `df`'s order.
+    """
     cols = df.select(cs.numeric()).columns
     return [col for col in cols if col not in exclude]
 
 
 def categorical_columns(df: pl.DataFrame, exclude: tuple[str, ...] = ()) -> list[str]:
-    """String, categorical, enum and boolean columns."""
+    """Lists the string, categorical, enum and boolean columns of `df`.
+
+    Args:
+        df (pl.DataFrame): The data.
+        exclude (tuple[str, ...]): Columns to leave out. Defaults to ().
+
+    Returns:
+        list[str]: The categorical columns, in `df`'s order.
+    """
     kinds = (pl.String, pl.Categorical, pl.Enum, pl.Boolean)
     return [
         col
@@ -43,7 +69,17 @@ def categorical_columns(df: pl.DataFrame, exclude: tuple[str, ...] = ()) -> list
 
 
 def maybe_sample(df: pl.DataFrame, sample: int | None, seed: int = 0) -> pl.DataFrame:
-    """At most `sample` random rows (fixed seed, so plots are reproducible)."""
+    """Samples at most `sample` random rows, with a fixed seed so plots are
+    reproducible.
+
+    Args:
+        df (pl.DataFrame): The data.
+        sample (int | None): The maximum number of rows. If None, all rows.
+        seed (int): The random seed. Defaults to 0.
+
+    Returns:
+        pl.DataFrame: `df`, or a random sample of its rows.
+    """
     if sample is not None and df.height > sample:
         return df.sample(sample, seed=seed)
     return df
@@ -55,8 +91,19 @@ def panel_values(
     log: bool = False,
     clip: tuple[float, float] | None = None,
 ) -> pl.DataFrame:
-    """`df`'s rows with a plottable value in `col`: non-null, positive on a log
-    scale, and inside the `clip` quantile range (e.g. (0.01, 0.99))."""
+    """Keeps the rows of `df` with a plottable value in `col`: non-null and non-NaN,
+    positive on a log scale, and inside the `clip` quantile range.
+
+    Args:
+        df (pl.DataFrame): The data.
+        col (str): The column to check.
+        log (bool): Whether the values go on a log scale. Defaults to False.
+        clip (tuple[float, float] | None): The quantile range to keep, e.g. (0.01,
+            0.99). Defaults to None.
+
+    Returns:
+        pl.DataFrame: The plottable rows.
+    """
     sub = df.filter(pl.col(col).is_not_null() & pl.col(col).is_not_nan())
     if log:
         sub = sub.filter(pl.col(col) > 0)
@@ -68,7 +115,16 @@ def panel_values(
 
 
 def series_frame(data: PolarsFrame, time_col: str, target_col: str) -> pl.DataFrame:
-    """`time_col` and `target_col` only, sorted by time, without null targets."""
+    """Selects the time and target columns, sorted by time, without null targets.
+
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data.
+        time_col (str): The timestamp column.
+        target_col (str): The column of the series.
+
+    Returns:
+        pl.DataFrame: The two columns, sorted by time.
+    """
     return (
         ensure_collected(data, [target_col], keep=(time_col,))
         .filter(pl.col(target_col).is_not_null())
@@ -77,7 +133,17 @@ def series_frame(data: PolarsFrame, time_col: str, target_col: str) -> pl.DataFr
 
 
 def infer_interval(ts: pl.Series) -> timedelta:
-    """The most common step between consecutive timestamps."""
+    """Infers the step of a time series as the most common gap between timestamps.
+
+    Args:
+        ts (pl.Series): The timestamps, in any order.
+
+    Returns:
+        timedelta: The most common step (the smallest, on a tie).
+
+    Raises:
+        ValueError: If there are fewer than two distinct timestamps.
+    """
     steps = ts.sort().diff().drop_nulls()
     steps = steps.filter(steps > timedelta(0))
     if steps.len() == 0:
@@ -86,8 +152,16 @@ def infer_interval(ts: pl.Series) -> timedelta:
 
 
 def default_period(interval: timedelta) -> int:
-    """The natural seasonal period, in steps, for data at this interval: a day of
-    sub-daily data, a week of daily data, a year of weekly or monthly data."""
+    """Picks the natural seasonal period, in steps, for data at this interval: a day of
+    sub-daily data, a week of daily data, a year of weekly or monthly data, and quarters
+    otherwise.
+
+    Args:
+        interval (timedelta): The step of the data.
+
+    Returns:
+        int: The period, in steps.
+    """
     day = timedelta(days=1)
     if interval < day:
         return max(2, round(day / interval))
@@ -106,8 +180,19 @@ Values = ArrayLike | Sequence[Any] | pl.Series | pl.DataFrame
 
 
 def as_1d(values: Values, name: str) -> np.ndarray:
-    """A flat array from a list, array, Series or single-column DataFrame (like the
-    `y` frames the fit functions take)."""
+    """Converts labels, predictions or timestamps into a flat array.
+
+    Args:
+        values (Values): A list, array, Series or single-column DataFrame (like the `y`
+            frames the fit functions take).
+        name (str): The argument's name, for error messages.
+
+    Returns:
+        np.ndarray: The values as a flat array.
+
+    Raises:
+        ValueError: If `values` has more than one column or dimension.
+    """
     if isinstance(values, pl.DataFrame):
         if values.width != 1:
             raise ValueError(f"{name} needs exactly one column, got {values.width}")
@@ -121,8 +206,18 @@ def as_1d(values: Values, name: str) -> np.ndarray:
 
 
 def as_proba(values: Values) -> np.ndarray:
-    """Class probabilities as an (n, n_classes) array. A flat input is taken as the
-    positive class's probability of a binary problem."""
+    """Converts class probabilities into an (n, n_classes) array.
+
+    Args:
+        values (Values): The probabilities, as from `predict_proba`: (n, n_classes), or
+            (n,) for the positive class of a binary problem.
+
+    Returns:
+        np.ndarray: The probabilities, one column per class.
+
+    Raises:
+        ValueError: If `values` isn't (n,) or (n, n_classes) with 2+ classes.
+    """
     array = values.to_numpy() if isinstance(values, pl.DataFrame) else None
     if array is None:
         array = (
@@ -136,6 +231,14 @@ def as_proba(values: Values) -> np.ndarray:
 
 
 def same_length(**arrays: np.ndarray) -> None:
+    """Checks that arrays have the same length.
+
+    Args:
+        **arrays (np.ndarray): The arrays, by the name used in the error message.
+
+    Raises:
+        ValueError: If the lengths differ.
+    """
     lengths = {name: len(a) for name, a in arrays.items()}
     if len(set(lengths.values())) > 1:
         raise ValueError(f"lengths differ: {lengths}")

@@ -36,10 +36,19 @@ from ._utils import (
 def plot_timeseries_grid(
     data: PolarsFrame, time_col: str = "ts", columns: Sequence[str] | None = None
 ) -> Figure:
-    """Plots a line chart over time for every numeric column in the dataset.
+    """Plots a line chart over time for every numeric column, one panel each.
 
-    `columns` restricts the plot to these columns; by default all are used.
-    `time_col` is always kept.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        time_col (str): The timestamp column. Defaults to "ts".
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns but `time_col` are used. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is numeric.
     """
     df = ensure_collected(data, columns, keep=(time_col,)).sort(time_col)
     cols = numeric_columns(df, exclude=(time_col,))
@@ -67,8 +76,15 @@ def plot_missing_values(
 ) -> Figure:
     """Plots the percentage of missing values per column, most missing on top.
 
-    `columns` restricts the plot to these columns; by default all are used. With
-    `ax`, it's drawn there.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all columns are used. Defaults to None.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
     """
     df = ensure_collected(data, columns)
     missing = (
@@ -105,12 +121,22 @@ def plot_autocorrelation(
     *,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots the autocorrelation function (ACF) for the target variable, with its
-    95% confidence band. With `ax`, it's drawn there.
+    """Plots the autocorrelation function (ACF) of a series, with its 95% confidence
+    band. The ACF at lag k mixes the direct effect of k steps back with everything
+    passed on through the steps in between; see `plot_partial_autocorrelation` for the
+    direct effect alone.
 
-    The ACF at lag k mixes the direct effect of k steps back with everything
-    passed on through the steps in between; see `plot_partial_autocorrelation`
-    for the direct effect alone.
+    The values are taken in the data's row order, so the data should be sorted by time.
+
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        target_col (str): The column of the series. Defaults to "val".
+        lags (int): The number of lags to show. Defaults to 50.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
     """
     series = ensure_collected(data).get_column(target_col).drop_nulls().to_numpy()
     fig, ax = figure_and_axes(ax, (12, 3.6))
@@ -127,13 +153,24 @@ def plot_partial_autocorrelation(
     *,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots the partial autocorrelation function (PACF) for the target variable,
-    with its 95% confidence band. With `ax`, it's drawn there.
+    """Plots the partial autocorrelation function (PACF) of a series, with its 95%
+    confidence band. The PACF at lag k is the correlation with k steps back after
+    removing what the steps in between already explain, so lags sticking out of the band
+    are candidates for lag features (e.g. 1, 24 and 168 for hourly data with daily and
+    weekly cycles).
 
-    The PACF at lag k is the correlation with k steps back after removing what the
-    steps in between already explain, so lags sticking out of the band are
-    candidates for lag features (e.g. 1, 24 and 168 for hourly data with daily and
-    weekly cycles). `lags` must be below half the series length.
+    The values are taken in the data's row order, so the data should be sorted by time.
+
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        target_col (str): The column of the series. Defaults to "val".
+        lags (int): The number of lags to show; must be below half the series length.
+            Defaults to 50.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
     """
     series = ensure_collected(data).get_column(target_col).drop_nulls().to_numpy()
     fig, ax = figure_and_axes(ax, (12, 3.6))
@@ -176,14 +213,22 @@ def plot_rolling_stats(
     *,
     window: str | int | None = None,
 ) -> Figure:
-    """Plots the target's rolling mean (with a ±1 std band) over the raw series, and
-    the rolling std below it, to check stationarity at a glance: a drifting mean or
-    a changing std means the level or the volatility isn't constant.
+    """Plots a series' rolling mean (with a ±1 std band) over the raw series, and the
+    rolling std below it, to check stationarity at a glance: a drifting mean or a
+    changing std means the level or the volatility isn't constant.
 
-    `window` is a polars duration like "30d" (by time) or a number of rows; either
-    way, nothing is drawn until the first full window. By default it spans one
-    natural seasonal period (a day of hourly data, a week of daily data), so the
-    seasonal swing averages out of the mean.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        time_col (str): The timestamp column. Defaults to "ts".
+        target_col (str): The column of the series. Defaults to "val".
+        window (str | int | None): The window, as a polars duration like "30d" (by time)
+            or a number of rows; either way, nothing is drawn until the first full
+            window. If None, one natural seasonal period (a day of hourly data, a week
+            of daily data), so the seasonal swing averages out of the mean. Defaults to
+            None.
+
+    Returns:
+        Figure: The figure.
     """
     df = series_frame(data, time_col, target_col)
     if window is None:
@@ -240,12 +285,20 @@ def plot_gaps(
     interval: str | timedelta | None = None,
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots where timestamps are missing: one stem per gap, at its start, as tall
-    as the number of missing steps. The title sums up the gaps and duplicates.
+    """Plots where timestamps are missing: one stem per gap, at its start, as tall as
+    the number of missing steps. The title sums up the gaps and duplicate timestamps.
+    Lag features look a timestamp up by time, so gaps are where they come out null.
 
-    `interval` is the expected step, as a polars duration like "1h" or a
-    timedelta; by default the most common step. Lag features look a timestamp up
-    by time, so gaps are where they come out null. With `ax`, it's drawn there.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        time_col (str): The timestamp column. Defaults to "ts".
+        interval (str | timedelta | None): The expected step, as a polars duration like
+            "1h" or a timedelta. If None, the most common step. Defaults to None.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
     """
     ts = ensure_collected(data, [time_col])[time_col].drop_nulls().sort()
     n_duplicates = ts.len() - ts.n_unique()

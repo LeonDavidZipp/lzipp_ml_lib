@@ -23,13 +23,23 @@ _HEXBIN_FROM = 20_000
 
 @styled
 def plot_regression_diagnostics(y_true: Values, y_pred: Values) -> Figure:
-    """Plots three views of a regression model's errors, side by side.
+    """Plots three views of a regression model's errors, side by side. Predicted vs
+    actual (with R², MAE and RMSE): points off the diagonal are errors. Residuals
+    (actual - predicted) vs predicted, with their binned mean: a curve or funnel means
+    the errors depend on the prediction's size, so the model misses a shape or the
+    target wants a transform (e.g. log). The residual distribution: a shifted centre is
+    bias, heavy tails are outliers. Above 20,000 points, scatters become hexbins.
 
-    Predicted vs actual (with R², MAE and RMSE): points off the diagonal are
-    errors. Residuals (actual - predicted) vs predicted, with their binned mean: a
-    curve or funnel means the errors depend on the prediction's size, so the
-    model misses a shape or the target wants a transform (e.g. log). The residual
-    distribution: a shifted centre is bias, heavy tails are outliers.
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_pred (Values): The predicted values, in the same forms as `y_true`.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the inputs differ in length.
     """
     actual = as_1d(y_true, "y_true").astype(float)
     predicted = as_1d(y_pred, "y_pred").astype(float)
@@ -141,12 +151,24 @@ def plot_forecast(
     y_pred: Values,
     ts: Values | None = None,
 ) -> Figure:
-    """Plots actual and predicted values over time, with the residual below.
-
-    `ts` holds the timestamps (e.g. the test set's `ts` column); without it, the
-    x axis is the row number. Lines break where timestamps are missing. Long
+    """Plots actual and predicted values over time, with the residual below. Long
     stretches where the residual stays on one side of 0 are something the model
-    systematically misses, like a level shift or a holiday.
+    systematically misses, like a level shift or a holiday. Lines break where timestamps
+    are missing.
+
+    Args:
+        y_true (Values): The true labels or values, as a list, array, Series or
+            single-column DataFrame (like the `y` frames the fit functions take).
+        y_pred (Values): The predicted values, in the same forms as `y_true`.
+        ts (Values | None): The timestamps of the values (e.g. the test set's `ts`
+            column); the values are sorted by them. If None, the x axis is the row
+            number. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the inputs differ in length.
     """
     actual = as_1d(y_true, "y_true").astype(float)
     predicted = as_1d(y_pred, "y_pred").astype(float)

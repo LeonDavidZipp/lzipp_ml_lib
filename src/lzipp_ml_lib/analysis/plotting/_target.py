@@ -32,23 +32,36 @@ def plot_feature_target(
     sample: int | None = None,
     log_x: bool | Sequence[str] = False,
 ) -> Figure:
-    """Plots the mean of `target` across the values of every other column.
+    """Plots the mean of `target` across the values of every other column, one panel
+    each. Numeric features are cut into quantile bins, with each bin's mean target
+    plotted at the bin's median feature value and a 95% confidence band; categorical
+    features show the mean target of their most frequent values. A thin line marks the
+    overall mean, so features whose curve stays on it carry little signal on their own.
+    For a 0/1 target the mean is the positive rate.
 
-    Numeric features are cut into `n_bins` quantile bins (equally many rows each);
-    each bin's mean target is plotted at the bin's median feature value, with a
-    95% confidence band. Categorical features show the mean target of their
-    `top_k` most frequent values. A thin line marks the overall mean, so features
-    whose curve stays on it carry little signal on their own.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        target (str): The target column; numeric or boolean.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all columns but the target are used. Defaults to None.
+        n_bins (int): The number of quantile bins (equally many rows each) per numeric
+            feature. Defaults to 10.
+        top_k (int): The number of most frequent values shown per categorical feature.
+            Defaults to 10.
+        sample (int | None): Plot at most this many random rows (with a fixed seed), for
+            speed on large data. Defaults to None.
+        log_x (bool | Sequence[str]): Features whose x axis goes on a log scale, so
+            skewed features' bins don't bunch up at one end: True for every numeric
+            feature, or a list of feature names. Only the axis changes, not the binning.
+            A feature with a bin median <= 0 gets a symmetric log scale instead (linear
+            around 0), so no bins are dropped. Defaults to False.
 
-    For a 0/1 target the mean is the positive rate. `target` must be numeric (or
-    boolean). `columns` restricts it to these features; `sample` plots at most
-    this many random rows.
+    Returns:
+        Figure: The figure.
 
-    `log_x` puts the x axis of skewed features on a log scale, so their bins don't
-    bunch up at one end: True for every numeric feature, or a list of feature
-    names. Binning is unchanged, only the axis is. If a bin's median is <= 0 (e.g.
-    a pile of zeros), that feature gets a symmetric log scale instead (linear
-    around 0), so no bins are dropped.
+    Raises:
+        ValueError: If `target` isn't numeric or boolean, or if `log_x` names a feature
+            that isn't a numeric one of the plot.
     """
     df = maybe_sample(ensure_collected(data, columns, keep=(target,)), sample)
     if df[target].dtype == pl.Boolean:

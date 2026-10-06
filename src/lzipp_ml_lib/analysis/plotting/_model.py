@@ -28,12 +28,25 @@ def plot_feature_importance(
     ax: Axes | None = None,
 ) -> Figure:
     """Plots each feature's share of the model's total importance, largest on top.
+    Features the model never splits on are counted in the title.
 
-    "gain" (the default) is the average loss reduction of a feature's splits: how
-    useful it is when used. "weight" counts how often it's split on, which favours
-    features with many distinct values whether or not they help. Past `top_k`
-    features, the rest are folded into one "other" bar; features the model never
-    splits on are counted in the title. With `ax`, it's drawn there.
+    Args:
+        model (xgb.XGBModel | xgb.Booster): The fitted model.
+        importance_type (Literal["gain", "total_gain", "weight", "cover",
+            "total_cover"]): How importance is measured. "gain" is the average loss
+            reduction of a feature's splits: how useful it is when used. "weight" counts
+            how often it's split on, which favours features with many distinct values
+            whether or not they help. Defaults to "gain".
+        top_k (int): The number of features shown; the rest are folded into one "other"
+            bar. Defaults to 20.
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the model has no splits.
     """
     booster = model.get_booster() if isinstance(model, xgb.XGBModel) else model
     # multi-output models score a feature per output; their sum ranks it overall
@@ -78,13 +91,20 @@ def plot_feature_importance(
 
 @styled
 def plot_learning_curves(model: xgb.XGBModel) -> Figure:
-    """Plots each evaluation metric per boosting round, one line per eval set and
-    one panel per metric, with the best round marked if early stopping was on.
+    """Plots each evaluation metric per boosting round, one panel per metric and one
+    line per eval set, with the best round marked if early stopping was on. A training
+    curve that keeps falling while the validation one turns up is overfitting.
 
-    Needs a model fit with `eval_set`, e.g. `[(x_train, y_train), (x_val, y_val)]`.
-    A training curve that keeps falling while the validation one turns up is
-    overfitting. The `fit_xgb_*` functions' final models are fit without an
-    eval set, so they have no curves; fit one yourself with their best parameters.
+    Args:
+        model (xgb.XGBModel): A model fit with an `eval_set`, e.g. `[(x_train, y_train),
+            (x_val, y_val)]`. The `fit_xgb_*` functions' final models are fit without
+            one; fit one yourself with their best parameters.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the model has no evaluation results.
     """
     try:
         results = model.evals_result()

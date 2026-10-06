@@ -97,7 +97,15 @@ _R = TypeVar("_R")
 
 
 def styled(func: Callable[_P, _R]) -> Callable[_P, _R]:
-    """Apply RC while `func` runs, leaving the global rcParams alone."""
+    """Decorates a plotting function to draw in the library's style. The style only
+    applies while the function runs, so the global matplotlib settings stay as they are.
+
+    Args:
+        func (Callable[_P, _R]): The plotting function.
+
+    Returns:
+        Callable[_P, _R]: The function, drawing in the library's style.
+    """
 
     @functools.wraps(func)
     def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
@@ -110,7 +118,19 @@ def styled(func: Callable[_P, _R]) -> Callable[_P, _R]:
 def panel_grid(
     n_panels: int, n_cols: int, panel_size: tuple[float, float]
 ) -> tuple[Figure, list[Axes]]:
-    """A grid of `n_panels` axes, `n_cols` wide; leftover cells are hidden."""
+    """Creates a grid of axes, one panel each, `n_cols` wide; leftover cells are hidden.
+
+    Args:
+        n_panels (int): The number of panels.
+        n_cols (int): The number of columns, capped at `n_panels`.
+        panel_size (tuple[float, float]): The size of one panel, in inches.
+
+    Returns:
+        tuple[Figure, list[Axes]]: The figure and its `n_panels` visible axes.
+
+    Raises:
+        ValueError: If `n_panels` is 0.
+    """
     if n_panels == 0:
         raise ValueError("nothing to plot: no matching columns")
     n_cols = min(n_cols, n_panels)
@@ -131,11 +151,16 @@ def panel_grid(
 def figure_and_axes(
     ax: Axes | None, figsize: tuple[float, float]
 ) -> tuple[Figure, Axes]:
-    """`ax` and the figure it lives on, or a new single-axes figure if `ax` is None.
+    """Returns `ax` and the figure it lives on, or a new single-axes figure. A passed
+    `ax` was created outside the style, so its axes-level look (surface, spines, grid,
+    ticks) is applied here; everything drawn on it afterwards picks up the style anyway.
 
-    A passed `ax` was created outside the style, so its axes-level look (surface,
-    spines, grid, ticks) is applied here; everything drawn on it afterwards picks
-    up the style anyway.
+    Args:
+        ax (Axes | None): Axes to draw on. If None, a new figure is created.
+        figsize (tuple[float, float]): The size of a new figure.
+
+    Returns:
+        tuple[Figure, Axes]: The figure and the axes to draw on.
     """
     if ax is not None:
         _restyle_axes(ax)
@@ -166,8 +191,19 @@ def _restyle_axes(ax: Axes) -> None:
 
 
 def group_palette(df: pl.DataFrame, by: str) -> dict[Any, str]:
-    """A fixed colour per group of `by`, in sorted group order, so every panel (and
-    every call on the same groups) colours a group the same way."""
+    """Assigns a fixed colour to every group of `by`, in sorted group order, so every
+    panel (and every call on the same groups) colours a group the same way.
+
+    Args:
+        df (pl.DataFrame): The data.
+        by (str): The column holding the groups.
+
+    Returns:
+        dict[Any, str]: The colour of each group, keyed by group.
+
+    Raises:
+        ValueError: If there are more groups than categorical colours (8).
+    """
     groups = df[by].drop_nulls().unique().sort().to_list()
     if len(groups) > len(CATEGORICAL):
         raise ValueError(
@@ -178,7 +214,13 @@ def group_palette(df: pl.DataFrame, by: str) -> dict[Any, str]:
 
 
 def add_group_legend(fig: Figure, palette: dict[Any, str], title: str) -> None:
-    """One legend for the whole figure, outside the panels."""
+    """Adds one legend for the whole figure, outside the panels.
+
+    Args:
+        fig (Figure): The figure.
+        palette (dict[Any, str]): The colour of each group, keyed by group.
+        title (str): The legend's title.
+    """
     handles = [Line2D([], [], color=c, linewidth=2) for c in palette.values()]
     fig.legend(  # type: ignore
         handles,
@@ -190,7 +232,12 @@ def add_group_legend(fig: Figure, palette: dict[Any, str], title: str) -> None:
 
 
 def date_axis(ax: Axes) -> None:
-    """Compact date ticks (e.g. "2024", "Feb", "Mar") instead of full timestamps."""
+    """Gives `ax` compact date ticks (e.g. "2024", "Feb", "Mar") instead of full
+    timestamps.
+
+    Args:
+        ax (Axes): The axes.
+    """
     locator = mdates.AutoDateLocator()
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))  # type: ignore

@@ -72,13 +72,27 @@ def plot_seasonal_profile(
     agg: Literal["mean", "median"] = "mean",
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots the target's typical value per calendar position.
+    """Plots a series' typical value per calendar position: a heatmap of rows x cols,
+    e.g. weekday x hour, or a line over `rows` alone, with the interquartile range as a
+    band. Both show whether calendar features are worth adding: a flat profile means
+    they carry little.
 
-    With `rows` and `cols`, a heatmap of the `agg` per combination, e.g. weekday x
-    hour shows the daily cycle and how weekends differ in one picture. With
-    `cols=None`, a line over `rows` alone, with the interquartile range as a band.
-    Both show whether calendar features (hour, weekday, month, ...) are worth
-    adding: a flat profile means they carry little. With `ax`, it's drawn there.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        time_col (str): The timestamp column. Defaults to "ts".
+        target_col (str): The column of the series. Defaults to "val".
+        rows (CalendarUnit): The calendar unit of the rows (or the x axis of the line):
+            "minute", "hour", "weekday", "day", "week", "month", "quarter" or "year".
+            Defaults to "weekday".
+        cols (CalendarUnit | None): The calendar unit of the columns. If None, a line
+            over `rows` is drawn instead of a heatmap. Defaults to "hour".
+        agg (Literal["mean", "median"]): How the values per calendar position are
+            summarized. Defaults to "mean".
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
     """
     df = series_frame(data, time_col, target_col)
     units = [rows] if cols is None else [rows, cols]
@@ -166,19 +180,30 @@ def plot_decomposition(
     periods: int | Sequence[int] | None = None,
     robust: bool = True,
 ) -> Figure:
-    """Splits the target into trend, seasonality and residual (STL), one panel each.
-
-    `periods` are seasonal cycle lengths in steps, e.g. `(24, 168)` for a daily and
-    a weekly cycle in hourly data; several periods use MSTL, one seasonal panel
-    each. By default it's one natural period for the data's step: a day of
-    sub-daily data, a week of daily data, a year of weekly or monthly data.
-    `robust` keeps outliers out of the trend and seasonality, so they end up in
-    the residual, where they can be seen.
+    """Splits a series into trend, seasonality and residual (STL), one panel each.
 
     STL needs evenly spaced data without gaps: duplicate timestamps are averaged,
-    missing steps linearly interpolated, and how many were filled is noted at the
-    top. The series must span at least two of the longest period. On long series
-    it gets slow; slicing to the range of interest first helps.
+    missing steps linearly interpolated, and how many were filled is noted at the top.
+    On long series it gets slow; slicing to the range of interest first helps.
+
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        time_col (str): The timestamp column. Defaults to "ts".
+        target_col (str): The column of the series. Defaults to "val".
+        periods (int | Sequence[int] | None): Seasonal cycle lengths in steps, e.g. (24,
+            168) for a daily and a weekly cycle in hourly data; several periods use
+            MSTL, with one seasonal panel each. If None, one natural period for the
+            data's step: a day of sub-daily data, a week of daily data, a year of weekly
+            or monthly data. Defaults to None.
+        robust (bool): Whether to keep outliers out of the trend and seasonality, so
+            they end up in the residual, where they can be seen. Defaults to True.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If the series spans fewer than two of the longest period, or has
+            fewer than two timestamps.
     """
     df = series_frame(data, time_col, target_col)
     interval = infer_interval(df[time_col])

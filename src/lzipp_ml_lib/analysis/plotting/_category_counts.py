@@ -17,10 +17,22 @@ def plot_category_counts(
     top_k: int = 10,
 ) -> Figure:
     """Plots how often each value occurs in every string, categorical and boolean
-    column, most frequent on top.
+    column, one panel each, most frequent on top. Nulls get their own bar.
 
-    Past the `top_k` most frequent values, the rest are folded into one "other"
-    bar. Nulls get their own bar. `columns` restricts it to these columns.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all categorical columns are used. Defaults to None.
+        as_categorical (Sequence[str] | None): Numeric columns to count as categories,
+            e.g. codes like a region id. Defaults to None.
+        top_k (int): The number of most frequent values shown per column; the rest are
+            folded into one "other" bar. Defaults to 10.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is categorical.
     """
     df = ensure_collected(data, columns)
     if as_categorical:

@@ -20,13 +20,26 @@ def plot_corr_heatmap(
     method: Literal["pearson", "spearman"] = "pearson",
     ax: Axes | None = None,
 ) -> Figure:
-    """Plots the pairwise correlations of all numeric columns.
+    """Plots the pairwise correlations of all numeric columns as a heatmap. Only the
+    lower triangle is drawn: the upper one mirrors it, and the diagonal is always 1.
 
-    Only the lower triangle is drawn: the upper one mirrors it and the diagonal is
-    always 1. `columns` restricts the plot to these columns; by default all are
-    used. `method="spearman"` correlates ranks instead of values: it catches any
-    monotonic relationship, not just linear ones, and isn't thrown off by skew or
-    outliers. With `ax`, the heatmap is drawn there and `figsize` is ignored.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        figsize (tuple[float, float]): The size of a new figure; ignored with `ax`.
+            Defaults to (10, 8).
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns are used. Defaults to None.
+        method (Literal["pearson", "spearman"]): "spearman" correlates ranks instead of
+            values: it catches any monotonic relationship, not just linear ones, and
+            isn't thrown off by skew or outliers. Defaults to "pearson".
+        ax (Axes | None): Axes to draw on, e.g. to combine plots in one figure; its look
+            is adapted to the style. If None, a new figure is created. Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If fewer than two of the selected columns are numeric.
     """
     df = ensure_collected(data, columns)
     cols = numeric_columns(df)

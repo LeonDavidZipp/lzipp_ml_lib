@@ -25,15 +25,6 @@ from ._utils import (
     panel_values,
 )
 
-# Shared by every plot in this module:
-#   columns  restricts the plot to these columns; by default all numeric ones.
-#   by       a column whose groups are compared within each panel, e.g. the class
-#            or the train/test split (at most 8 groups).
-#   sample   plots at most this many random rows, for speed on large data.
-#   log      puts the values on a log scale; non-positive values are dropped.
-#   clip     keeps only values inside this quantile range per column, e.g.
-#            (0.01, 0.99), so a few extremes don't flatten the plot.
-
 
 @styled
 def plot_kde(
@@ -45,11 +36,30 @@ def plot_kde(
     log: bool = False,
     clip: tuple[float, float] | None = None,
 ) -> Figure:
-    """Plots a density curve for every numeric column.
+    """Plots a density curve for every numeric column, one panel each. With `by`, each
+    group gets its own curve, normalized on its own, so shapes compare even when group
+    sizes differ. Curves stop at the data's range.
 
-    With `by`, each group gets its own curve, each normalized on its own so
-    shapes compare even when group sizes differ. See the module comment for the
-    other options.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns are used. Defaults to None.
+        by (str | None): A column whose groups are compared within each panel, e.g. the
+            class or the train/test split; at most 8 groups. Defaults to None.
+        sample (int | None): Plot at most this many random rows (with a fixed seed), for
+            speed on large data. Defaults to None.
+        log (bool): Whether to put the values on a log scale; non-positive values are
+            dropped. Defaults to False.
+        clip (tuple[float, float] | None): Keep only values inside this quantile range
+            per column, e.g. (0.01, 0.99), so a few extremes don't flatten the plot.
+            Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is numeric, or if `by` has more than
+            8 groups.
     """
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
@@ -89,13 +99,33 @@ def plot_histograms(
     log: bool = False,
     clip: tuple[float, float] | None = None,
 ) -> Figure:
-    """Plots a histogram for every numeric column.
+    """Plots a histogram for every numeric column, one panel each. Unlike a density
+    curve, it shows hard bounds, gaps and spikes (e.g. a pile of zeros) as they are.
+    With `by`, each group is drawn as an outline, normalized on its own.
 
-    Unlike a density curve, it shows hard bounds, gaps and spikes (e.g. a pile of
-    zeros) as they are. Integer columns with few distinct values get one bar per
-    value. `bins` is a count or a numpy rule like "auto" or "sturges". With `by`,
-    each group is drawn as an outline, normalized on its own. See the module comment
-    for the other options.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns are used. Defaults to None.
+        bins (int | str): The number of bins, or a numpy rule like "auto" or "sturges".
+            Integer columns with at most 50 distinct values always get one bar per
+            value. Defaults to "auto".
+        by (str | None): A column whose groups are compared within each panel, e.g. the
+            class or the train/test split; at most 8 groups. Defaults to None.
+        sample (int | None): Plot at most this many random rows (with a fixed seed), for
+            speed on large data. Defaults to None.
+        log (bool): Whether to put the values on a log scale; non-positive values are
+            dropped. Defaults to False.
+        clip (tuple[float, float] | None): Keep only values inside this quantile range
+            per column, e.g. (0.01, 0.99), so a few extremes don't flatten the plot.
+            Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is numeric, or if `by` has more than
+            8 groups.
     """
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
@@ -147,10 +177,29 @@ def plot_boxplots(
     log: bool = False,
     clip: tuple[float, float] | None = None,
 ) -> Figure:
-    """Plots a boxplot for every numeric column, to show spread and outliers.
+    """Plots a boxplot for every numeric column, one panel each, to show spread and
+    outliers. With `by`, each panel gets one box per group.
 
-    With `by`, each panel gets one box per group. See the module comment for the
-    other options.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns are used. Defaults to None.
+        by (str | None): A column whose groups are compared within each panel, e.g. the
+            class or the train/test split; at most 8 groups. Defaults to None.
+        sample (int | None): Plot at most this many random rows (with a fixed seed), for
+            speed on large data. Defaults to None.
+        log (bool): Whether to put the values on a log scale; non-positive values are
+            dropped. Defaults to False.
+        clip (tuple[float, float] | None): Keep only values inside this quantile range
+            per column, e.g. (0.01, 0.99), so a few extremes don't flatten the plot.
+            Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is numeric, or if `by` has more than
+            8 groups.
     """
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
@@ -190,11 +239,30 @@ def plot_violinplots(
     log: bool = False,
     clip: tuple[float, float] | None = None,
 ) -> Figure:
-    """Plots a violin plot for every numeric column, to show the shape of its
-    distribution.
+    """Plots a violin plot for every numeric column, one panel each, to show the shape
+    of its distribution with its quartiles. With `by`, each panel gets one violin per
+    group.
 
-    With `by`, each panel gets one violin per group. See the module comment for the
-    other options.
+    Args:
+        data (pl.DataFrame | pl.LazyFrame): The data to plot.
+        columns (Sequence[str] | None): Columns to restrict the plot to, in this order.
+            If None, all numeric columns are used. Defaults to None.
+        by (str | None): A column whose groups are compared within each panel, e.g. the
+            class or the train/test split; at most 8 groups. Defaults to None.
+        sample (int | None): Plot at most this many random rows (with a fixed seed), for
+            speed on large data. Defaults to None.
+        log (bool): Whether to put the values on a log scale; non-positive values are
+            dropped. Defaults to False.
+        clip (tuple[float, float] | None): Keep only values inside this quantile range
+            per column, e.g. (0.01, 0.99), so a few extremes don't flatten the plot.
+            Defaults to None.
+
+    Returns:
+        Figure: The figure.
+
+    Raises:
+        ValueError: If none of the selected columns is numeric, or if `by` has more than
+            8 groups.
     """
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
