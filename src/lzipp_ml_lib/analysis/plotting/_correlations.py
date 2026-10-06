@@ -32,7 +32,6 @@ def plot_corr_heatmap(
     cols = numeric_columns(df)
     if len(cols) < 2:
         raise ValueError("a correlation heatmap needs at least two numeric columns")
-    # + 0.0 turns -0.0 into 0.0, so no "-0.00" annotations
     values = df.select(cols)
     if method == "spearman":
         values = values.select(pl.all().rank())
@@ -61,9 +60,9 @@ def plot_corr_heatmap(
     ax.grid(visible=False)  # type: ignore
     ax.tick_params(axis="x", labelrotation=45)  # type: ignore
     ax.tick_params(axis="y", labelrotation=0)  # type: ignore
-    for label in ax.get_yticklabels():  # type: ignore[operator]  # broken matplotlib-stubs
+    for label in ax.get_yticklabels():  # type: ignore[operator]
         label.set_horizontalalignment("right")
-    for label in ax.get_xticklabels():  # type: ignore[operator]  # broken matplotlib-stubs
+    for label in ax.get_xticklabels():  # type: ignore[operator]
         label.set_horizontalalignment("right")
         label.set_rotation_mode("anchor")
     cbar = ax.collections[0].colorbar  # type: ignore
