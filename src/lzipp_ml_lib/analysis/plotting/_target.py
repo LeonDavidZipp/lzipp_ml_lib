@@ -89,23 +89,23 @@ def _draw_binned(
         .with_columns(bin=pl.col(col).qcut(n_bins, allow_duplicates=True).to_physical())
         .group_by("bin")
         .agg(
-            x=pl.col(col).median(),
+            median=pl.col(col).median(),
             mean=pl.col(target).mean(),
             sem=pl.col(target).std() / pl.len().sqrt(),
         )
-        .sort("x")
+        .sort("median")
         .with_columns(pl.col("sem").fill_null(0))
     )
-    x, mean, sem = stats["x"], stats["mean"], stats["sem"]
+    median, mean, sem = stats["median"], stats["mean"], stats["sem"]
     ax.fill_between(  # type: ignore
-        x,
+        median,
         mean - 1.96 * sem,  # type: ignore
         mean + 1.96 * sem,  # type: ignore
         color=ACCENT_WASH,
         linewidth=0,
     )
     ax.plot(  # type: ignore
-        x,
+        median,
         mean,
         color=ACCENT,
         marker="o",
@@ -114,7 +114,7 @@ def _draw_binned(
         markeredgewidth=1.5,
     )
     if log:
-        _set_log_x(ax, x.to_numpy())
+        _set_log_x(ax, median.to_numpy())
 
 
 def _set_log_x(ax: Axes, x: np.ndarray) -> None:
@@ -130,7 +130,6 @@ def _set_log_x(ax: Axes, x: np.ndarray) -> None:
         ax.xaxis.set_major_locator(
             SymmetricalLogLocator(base=10, linthresh=linthresh, subs=[1, 2, 5])
         )
-    # plain numbers (0.05, 2, 500) instead of powers of ten
     ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))  # type: ignore
     ax.xaxis.set_minor_locator(NullLocator())
 
@@ -146,6 +145,6 @@ def _draw_categories(
     )
     ax.bar(stats[col].to_list(), stats["mean"].to_list(), width=0.6, color=ACCENT)  # type: ignore
     ax.tick_params(axis="x", labelrotation=30)  # type: ignore
-    for label in ax.get_xticklabels():  # type: ignore[operator]  # broken matplotlib-stubs
+    for label in ax.get_xticklabels():  # type: ignore[operator]
         label.set_horizontalalignment("right")
         label.set_rotation_mode("anchor")
