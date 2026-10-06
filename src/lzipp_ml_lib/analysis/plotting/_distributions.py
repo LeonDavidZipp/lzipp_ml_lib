@@ -255,7 +255,7 @@ def _style_horizontal(ax: Axes, has_groups: bool) -> None:
     if has_groups:
         ax.set_ylabel("")  # type: ignore
     else:
-        ax.set_yticks([])  # type: ignore[operator]  # broken matplotlib-stubs
+        ax.set_yticks([])  # type: ignore[operator]
     ax.grid(axis="y", visible=False)  # type: ignore
     ax.grid(axis="x", visible=True)  # type: ignore
     ax.tick_params(axis="x", colors=INK_MUTED, labelcolor=INK_MUTED)  # type: ignore

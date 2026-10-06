@@ -22,7 +22,7 @@ GRID = "#e1e0d9"
 BASELINE = "#c3c2b7"
 ACCENT = "#2a78d6"
 ACCENT_WASH = "#2a78d61f"  # the accent at ~12% opacity, for fills behind a line
-# fixed categorical order; it's what keeps neighbouring series colourblind-safe
+
 CATEGORICAL = [
     "#2a78d6",
     "#eb6834",
@@ -33,21 +33,18 @@ CATEGORICAL = [
     "#4a3aa7",
     "#e34948",
 ]
-# red <-> neutral gray <-> blue, equal steps per arm
+
 DIVERGING = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_diverging", ["#a3302f", "#e34948", "#f0efec", "#2a78d6", "#104281"]
 )
 
 # one hue, light -> dark, for magnitudes (e.g. a seasonal profile heatmap)
-SEQUENTIAL = LinearSegmentedColormap.from_list(
+SEQUENTIAL = LinearSegmentedColormap.from_list(  # type: ignore
     "lzipp_sequential",
     ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
 )
 
-# Concrete families rather than the generic "sans-serif": text resolves a generic
-# family when it's drawn, which happens after the style's context has exited. Only
-# installed ones, since matplotlib warns about every missing family on every text.
-_INSTALLED = set(font_manager.get_font_names())  # type: ignore[operator]  # broken matplotlib-stubs
+_INSTALLED = set(font_manager.get_font_names())  # type: ignore[operator]
 FONTS = [
     family
     for family in ("Inter", "Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans")
@@ -121,7 +118,7 @@ def panel_grid(
         raise ValueError("nothing to plot: no matching columns")
     n_cols = min(n_cols, n_panels)
     n_rows = math.ceil(n_panels / n_cols)
-    fig, axes = plt.subplots(  # type: ignore[call-overload]  # broken matplotlib-stubs
+    fig, axes = plt.subplots(  # type: ignore[call-overload]
         n_rows,
         n_cols,
         figsize=(panel_size[0] * n_cols, panel_size[1] * n_rows),
