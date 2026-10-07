@@ -73,8 +73,9 @@ class CrossFeatures:
     frame, so on test data it uses the test data's mean.
     """
 
+    @staticmethod
     def sum(
-        self, lf: pl.LazyFrame, name: str, addends: Sequence[ColumnOrExpr]
+        lf: pl.LazyFrame, name: str, addends: Sequence[ColumnOrExpr]
     ) -> pl.LazyFrame:
         """Adds the sum of several values as a new column.
 
@@ -90,8 +91,8 @@ class CrossFeatures:
         """
         return lf.with_columns(sum_expr(addends).alias(name))
 
+    @staticmethod
     def difference(
-        self,
         lf: pl.LazyFrame,
         name: str,
         minuend: ColumnOrExpr,
@@ -113,8 +114,8 @@ class CrossFeatures:
         """
         return lf.with_columns(difference_expr(minuend, subtrahend).alias(name))
 
+    @staticmethod
     def product(
-        self,
         lf: pl.LazyFrame,
         name: str,
         factors: Sequence[ColumnOrExpr],
@@ -138,8 +139,8 @@ class CrossFeatures:
         """
         return lf.with_columns(product_expr(factors, scale).alias(name))
 
+    @staticmethod
     def ratio(
-        self,
         lf: pl.LazyFrame,
         name: str,
         dividend: ColumnOrExpr,
@@ -162,9 +163,8 @@ class CrossFeatures:
         """
         return lf.with_columns(ratio_expr(dividend, divisor).alias(name))
 
-    def custom_expression(
-        self, lf: pl.LazyFrame, name: str, expr: pl.Expr
-    ) -> pl.LazyFrame:
+    @staticmethod
+    def custom_expression(lf: pl.LazyFrame, name: str, expr: pl.Expr) -> pl.LazyFrame:
         """Adds any expression as a new column, for combinations the other methods
         don't cover, e.g. `(pl.col("a") - pl.col("b")) / pl.col("c")`.
 
@@ -178,8 +178,8 @@ class CrossFeatures:
         """
         return lf.with_columns(expr.alias(name))
 
+    @staticmethod
     def sum_multi(
-        self,
         lf: pl.LazyFrame,
         spec: Mapping[str, Sequence[ColumnOrExpr]],
     ) -> pl.LazyFrame:
@@ -197,8 +197,8 @@ class CrossFeatures:
             sum_expr(addends).alias(name) for name, addends in spec.items()
         )
 
+    @staticmethod
     def difference_multi(
-        self,
         lf: pl.LazyFrame,
         spec: Mapping[str, tuple[ColumnOrExpr, ColumnOrExpr]],
     ) -> pl.LazyFrame:
@@ -217,8 +217,8 @@ class CrossFeatures:
             for name, (minuend, subtrahend) in spec.items()
         )
 
+    @staticmethod
     def product_multi(
-        self,
         lf: pl.LazyFrame,
         spec: Mapping[str, ProductSpec],
     ) -> pl.LazyFrame:
@@ -241,8 +241,8 @@ class CrossFeatures:
         ]
         return lf.with_columns(exprs)
 
+    @staticmethod
     def ratio_multi(
-        self,
         lf: pl.LazyFrame,
         spec: Mapping[str, tuple[ColumnOrExpr, ColumnOrExpr]],
     ) -> pl.LazyFrame:
