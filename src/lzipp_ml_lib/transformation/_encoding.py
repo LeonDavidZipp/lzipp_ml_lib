@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 
 
-class ClassificationFeatures:
+class EncodingFeatures:
     """Feature encoders for tabular classification data.
 
     `fit` learns everything the encoders need from the training data (categories, bin
@@ -14,7 +14,7 @@ class ClassificationFeatures:
     methods then apply exactly that, so train and test get the same encoding and the
     same columns:
 
-        fe = ClassificationFeatures().fit(
+        fe = EncodingFeatures().fit(
             train,
             categorical_columns=["device"],
             target="y",

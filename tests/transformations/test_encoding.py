@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from lzipp_ml_lib.transformation._classification import ClassificationFeatures
+from lzipp_ml_lib.transformation._encoding import EncodingFeatures
 from tests.composites import SAMPLE_SETTINGS
 
 _CITIES = st.sampled_from(["a", "b", "c", None])
@@ -27,8 +27,8 @@ def labelled_frames(draw: st.DrawFn, min_rows: int = 4) -> pl.DataFrame:
     )
 
 
-def _fit(df: pl.DataFrame, smoothing: float = 10.0) -> ClassificationFeatures:
-    return ClassificationFeatures().fit(
+def _fit(df: pl.DataFrame, smoothing: float = 10.0) -> EncodingFeatures:
+    return EncodingFeatures().fit(
         df.lazy(), target="y", target_encode=["city"], smoothing=smoothing
     )
 
@@ -110,9 +110,9 @@ def test_target_encode_keeps_the_original_columns():
 def test_target_encode_needs_a_target_and_two_classes():
     lf = pl.LazyFrame({"city": ["a", "b"], "y": [1, 1]})
     with pytest.raises(ValueError, match="needs a target"):
-        ClassificationFeatures().fit(lf, target_encode=["city"])
+        EncodingFeatures().fit(lf, target_encode=["city"])
     with pytest.raises(ValueError, match="at least two classes"):
-        ClassificationFeatures().fit(lf, target="y", target_encode=["city"])
+        EncodingFeatures().fit(lf, target="y", target_encode=["city"])
 
 
 def test_target_encode_rejects_a_single_fold():
@@ -129,7 +129,7 @@ def test_target_encode_rejects_a_single_fold():
 @SAMPLE_SETTINGS
 @given(df=labelled_frames())
 def test_frequency_shares_of_the_training_categories_sum_to_one(df: pl.DataFrame):
-    fe = ClassificationFeatures().fit(df.lazy(), frequency_encode=["city"])
+    fe = EncodingFeatures().fit(df.lazy(), frequency_encode=["city"])
     encoded = fe.frequency_encode(df.lazy()).collect()
     per_category = encoded.unique("city").get_column("city_freq")
     assert per_category.sum() == pytest.approx(1)
@@ -140,7 +140,7 @@ def test_frequency_shares_of_the_training_categories_sum_to_one(df: pl.DataFrame
 
 
 def test_frequency_encode_gives_unseen_categories_zero():
-    fe = ClassificationFeatures().fit(
+    fe = EncodingFeatures().fit(
         pl.LazyFrame({"city": ["a", "b"]}), frequency_encode=["city"]
     )
     encoded = fe.frequency_encode(pl.LazyFrame({"city": ["z"]})).collect()
@@ -156,7 +156,7 @@ def test_missing_indicators_true_flags_the_training_columns_with_nulls_or_nans()
     train = pl.LazyFrame(
         {"a": [1.0, None], "b": [1.0, math.nan], "c": [1.0, 2.0], "d": ["x", None]}
     )
-    fe = ClassificationFeatures().fit(train, missing_indicators=True)
+    fe = EncodingFeatures().fit(train, missing_indicators=True)
     encoded = fe.missing_indicators(train).collect()
     assert encoded.columns == [
         "a",
@@ -171,7 +171,7 @@ def test_missing_indicators_true_flags_the_training_columns_with_nulls_or_nans()
 
 
 def test_missing_indicators_give_every_frame_the_same_columns():
-    fe = ClassificationFeatures().fit(
+    fe = EncodingFeatures().fit(
         pl.LazyFrame({"a": [1.0, None]}), missing_indicators=True
     )
     complete = fe.missing_indicators(pl.LazyFrame({"a": [1.0, 2.0]})).collect()
@@ -179,7 +179,7 @@ def test_missing_indicators_give_every_frame_the_same_columns():
 
 
 def test_missing_indicators_take_explicit_columns():
-    fe = ClassificationFeatures().fit(
+    fe = EncodingFeatures().fit(
         pl.LazyFrame({"a": [1, 2], "b": [1, None]}), missing_indicators=["a"]
     )
     columns = fe.missing_indicators(pl.LazyFrame({"a": [None], "b": [None]}))
@@ -199,7 +199,7 @@ def test_missing_indicators_take_explicit_columns():
     "method", ["target_encode", "frequency_encode", "missing_indicators"]
 )
 def test_methods_need_their_fit_arguments(method: str):
-    fe = ClassificationFeatures().fit(pl.LazyFrame({"a": [1]}))
+    fe = EncodingFeatures().fit(pl.LazyFrame({"a": [1]}))
     with pytest.raises(RuntimeError, match="call fit"):
         getattr(fe, method)(pl.LazyFrame({"a": [1]}))
 
@@ -210,7 +210,7 @@ def test_fit_only_collects_the_columns_it_needs():
     lf = pl.LazyFrame({"city": ["a", "b"], "y": [0, 1]}).with_columns(
         broken=pl.col("city").cast(pl.Int64)
     )
-    fe = ClassificationFeatures().fit(
+    fe = EncodingFeatures().fit(
         lf, target="y", target_encode=["city"], frequency_encode=["city"]
     )
     assert fe.frequency_encode(lf.drop("broken")).collect().height == 2
