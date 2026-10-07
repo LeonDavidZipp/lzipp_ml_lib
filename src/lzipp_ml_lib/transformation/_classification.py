@@ -301,18 +301,21 @@ class ClassificationFeatures:
 class _TargetEncoding:
     """The smoothed class rates of one column's categories."""
 
-    names: list[str]  # output column per class
-    rates: list[dict[str, float]]  # category -> rate, per class
-    priors: list[float]  # overall rate, per class
+    output_columns: list[str]
+    category_rate_mappings: list[dict[str, float]]  # category -> rate, per class
+    global_means: list[float]  # overall rate, per class (synonym: prior)
 
     def apply(self, col: str) -> Iterator[pl.Expr]:
         key = pl.col(col).cast(pl.String)
-        for name, rates, prior in zip(self.names, self.rates, self.priors, strict=True):
-            # unseen categories and nulls both get the prior (replace_strict maps
-            # nulls to its default too)
+        for col, rates, global_mean in zip(
+            self.output_columns,
+            self.category_rate_mappings,
+            self.global_means,
+            strict=True,
+        ):
             yield key.replace_strict(
-                rates, default=prior, return_dtype=pl.Float64
-            ).alias(name)
+                rates, default=global_mean, return_dtype=pl.Float64
+            ).alias(col)
 
 
 @dataclass(frozen=True)
@@ -375,7 +378,9 @@ def _learn_target_encoding(
     df: pl.DataFrame, col: str, target: str, classes: list[Any], smoothing: float
 ) -> _TargetEncoding:
     is_class = [pl.col(target).eq(c).cast(pl.Float64) for c in classes]
-    priors = df.select(e.mean().alias(f"p{i}") for i, e in enumerate(is_class)).row(0)
+    global_means = df.select(
+        e.mean().alias(f"p{i}") for i, e in enumerate(is_class)
+    ).row(0)
     stats = (
         df.filter(pl.col(col).is_not_null())
         .group_by(key=pl.col(col).cast(pl.String))
@@ -388,14 +393,14 @@ def _learn_target_encoding(
         dict(
             zip(
                 stats["key"],
-                (stats[f"s{i}"] + smoothing * prior) / (stats["n"] + smoothing),
+                (stats[f"s{i}"] + smoothing * global_mean) / (stats["n"] + smoothing),
                 strict=True,
             )
         )
-        for i, prior in enumerate(priors)
+        for i, global_mean in enumerate(global_means)
     ]
     names = _encoding_names(col, classes, binary=len(classes) == 1)
-    return _TargetEncoding(names, rates, list(priors))
+    return _TargetEncoding(names, rates, list(global_means))
 
 
 def _out_of_fold_encode(
@@ -421,13 +426,15 @@ def _out_of_fold_encode(
         for name, c in zip(names, classes, strict=True):
             hit = (pl.col(target).eq(c) & labelled).cast(pl.Float64)
             seen = labelled.cast(pl.Float64)
-            prior = (hit.sum() - hit.sum().over(fold)) / (
+            global_mean = (hit.sum() - hit.sum().over(fold)) / (
                 seen.sum() - seen.sum().over(fold)
             )
             hits = hit.sum().over(key) - hit.sum().over(key, fold)
             rows = seen.sum().over(key) - seen.sum().over(key, fold)
-            rate = (hits + smoothing * prior) / (rows + smoothing)
-            exprs.append(pl.when(key.is_null()).then(prior).otherwise(rate).alias(name))
+            rate = (hits + smoothing * global_mean) / (rows + smoothing)
+            exprs.append(
+                pl.when(key.is_null()).then(global_mean).otherwise(rate).alias(name)
+            )
     return lf.with_columns(exprs).drop(fold)
 
 
@@ -502,9 +509,3 @@ def _get_categorical_values(
         for col in cols
     ).get_columns()
     return {s.name: s.to_list() for s in series}
-
-
-def to_xgboost(df: pl.DataFrame) -> pl.DataFrame: ...
-
-
-def numeric_to_bin(): ...
