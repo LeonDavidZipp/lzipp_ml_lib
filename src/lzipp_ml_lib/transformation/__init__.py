@@ -1,5 +1,6 @@
 from ._cross import CrossFeatures, difference_expr, product_expr, ratio_expr, sum_expr
 from ._encoding import EncodingFeatures
+from ._numeric import NumericFeatures, signed_log1p_expr
 from ._timeseries import (
     CalendarFeature,
     CyclicalFeature,
@@ -18,6 +19,8 @@ __all__ = [
     "TimeseriesFeatures",
     "TrendUnit",
     "CrossFeatures",
+    "NumericFeatures",
+    "signed_log1p_expr",
     "difference_expr",
     "product_expr",
     "sum_expr",
