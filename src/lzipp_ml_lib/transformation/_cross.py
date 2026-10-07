@@ -3,30 +3,30 @@ from dataclasses import dataclass
 
 import polars as pl
 
-_ColumnOrExpr = str | pl.Expr
+from .._shared import ColumnOrExpr, into_expr
 
 
 @dataclass(frozen=True)
 class DifferenceSpec:
-    minuend: _ColumnOrExpr
-    subtrahend: _ColumnOrExpr
+    minuend: ColumnOrExpr
+    subtrahend: ColumnOrExpr
 
 
 @dataclass(frozen=True)
 class ProductSpec:
-    factors: Sequence[_ColumnOrExpr]
+    factors: Sequence[ColumnOrExpr]
     scale: int | float = 1
 
 
 @dataclass(frozen=True)
 class RatioSpec:
-    dividend: _ColumnOrExpr
-    divisor: _ColumnOrExpr
+    dividend: ColumnOrExpr
+    divisor: ColumnOrExpr
 
 
 class CrossFeatures:
     def sum(
-        self, lf: pl.LazyFrame, name: str, addends: Sequence[_ColumnOrExpr]
+        self, lf: pl.LazyFrame, name: str, addends: Sequence[ColumnOrExpr]
     ) -> pl.LazyFrame:
         return lf.with_columns(sum_expr(addends).alias(name))
 
@@ -34,8 +34,8 @@ class CrossFeatures:
         self,
         lf: pl.LazyFrame,
         name: str,
-        minuend: _ColumnOrExpr,
-        subtrahend: _ColumnOrExpr,
+        minuend: ColumnOrExpr,
+        subtrahend: ColumnOrExpr,
     ) -> pl.LazyFrame:
         return lf.with_columns(difference_expr(minuend, subtrahend).alias(name))
 
@@ -43,7 +43,7 @@ class CrossFeatures:
         self,
         lf: pl.LazyFrame,
         name: str,
-        factors: Sequence[_ColumnOrExpr],
+        factors: Sequence[ColumnOrExpr],
         scale: int | float = 1,
     ) -> pl.LazyFrame:
         return lf.with_columns(product_expr(factors, scale).alias(name))
@@ -52,8 +52,8 @@ class CrossFeatures:
         self,
         lf: pl.LazyFrame,
         name: str,
-        dividend: _ColumnOrExpr,
-        divisor: _ColumnOrExpr,
+        dividend: ColumnOrExpr,
+        divisor: ColumnOrExpr,
     ) -> pl.LazyFrame:
         return lf.with_columns(ratio_expr(dividend, divisor).alias(name))
 
@@ -65,7 +65,7 @@ class CrossFeatures:
     def sum_multi(
         self,
         lf: pl.LazyFrame,
-        spec: Mapping[str, Sequence[_ColumnOrExpr]],
+        spec: Mapping[str, Sequence[ColumnOrExpr]],
     ) -> pl.LazyFrame:
         return lf.with_columns(
             sum_expr(addends).alias(name) for name, addends in spec.items()
@@ -74,7 +74,7 @@ class CrossFeatures:
     def difference_multi(
         self,
         lf: pl.LazyFrame,
-        spec: Mapping[str, tuple[_ColumnOrExpr, _ColumnOrExpr]],
+        spec: Mapping[str, tuple[ColumnOrExpr, ColumnOrExpr]],
     ) -> pl.LazyFrame:
         return lf.with_columns(
             difference_expr(minuend, subtrahend).alias(name)
@@ -95,7 +95,7 @@ class CrossFeatures:
     def ratio_multi(
         self,
         lf: pl.LazyFrame,
-        spec: Mapping[str, tuple[_ColumnOrExpr, _ColumnOrExpr]],
+        spec: Mapping[str, tuple[ColumnOrExpr, ColumnOrExpr]],
     ) -> pl.LazyFrame:
         return lf.with_columns(
             ratio_expr(dividend, divisor).alias(name)
@@ -103,33 +103,28 @@ class CrossFeatures:
         )
 
 
-def _into_expr(val: _ColumnOrExpr) -> pl.Expr:
-    """Converts a column name or Polars expression into a pl.Expr."""
-    return pl.col(val) if isinstance(val, str) else val
-
-
-def sum_expr(addends: Sequence[_ColumnOrExpr]) -> pl.Expr:
-    exprs = [_into_expr(col) for col in addends]
+def sum_expr(addends: Sequence[ColumnOrExpr]) -> pl.Expr:
+    exprs = [into_expr(col) for col in addends]
     return pl.fold(pl.lit(0.0), lambda x, y: x + y, exprs=exprs)
 
 
 def difference_expr(
-    minuend: _ColumnOrExpr,
-    subtrahend: _ColumnOrExpr,
+    minuend: ColumnOrExpr,
+    subtrahend: ColumnOrExpr,
 ) -> pl.Expr:
-    return _into_expr(minuend) - _into_expr(subtrahend)
+    return into_expr(minuend) - into_expr(subtrahend)
 
 
 def product_expr(
-    factors: Sequence[_ColumnOrExpr],
+    factors: Sequence[ColumnOrExpr],
     scale: int | float = 1,
 ) -> pl.Expr:
-    exprs = [_into_expr(col) for col in factors]
+    exprs = [into_expr(col) for col in factors]
     return pl.fold(pl.lit(scale), lambda x, y: x * y, exprs=exprs)
 
 
 def ratio_expr(
-    dividend: _ColumnOrExpr,
-    divisor: _ColumnOrExpr,
+    dividend: ColumnOrExpr,
+    divisor: ColumnOrExpr,
 ) -> pl.Expr:
-    return _into_expr(dividend) - _into_expr(divisor)
+    return into_expr(dividend) - into_expr(divisor)
