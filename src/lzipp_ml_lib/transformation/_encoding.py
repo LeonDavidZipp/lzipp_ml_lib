@@ -44,7 +44,6 @@ class EncodingFeatures:
         self._target_encodings: dict[str, _TargetEncoding] | None = None
         self._smoothing = 10.0
         self._frequencies: dict[str, _Frequencies] | None = None
-        self._missing_columns: list[str] | None = None
 
     def fit(
         self,
@@ -56,7 +55,6 @@ class EncodingFeatures:
         target_encode: Sequence[str] | None = None,
         smoothing: float = 10.0,
         frequency_encode: Sequence[str] | None = None,
-        missing_indicators: Sequence[str] | bool = False,
     ) -> Self:
         """Learns the categories of the categorical columns from the training data:
         each column's distinct values, as sorted strings, without nulls and NaNs.
@@ -81,9 +79,6 @@ class EncodingFeatures:
                 it instead of taking the rate of their few rows. Defaults to 10.0.
             frequency_encode (Sequence[str] | None): The columns to learn the
                 per-category shares of, for `frequency_encode`. Defaults to None.
-            missing_indicators (Sequence[str] | bool): The columns to flag missing
-                values of, for `missing_indicators`; True for every column with nulls
-                (or NaNs) in the training data. Defaults to False.
 
         Returns:
             Self: Itself.
@@ -102,7 +97,6 @@ class EncodingFeatures:
                 target if target_encode else None,
                 target_encode,
                 frequency_encode,
-                missing_indicators,
             )
         ).collect()
         if categorical_columns is not None:
@@ -124,12 +118,6 @@ class EncodingFeatures:
             self._frequencies = {
                 col: _learn_frequencies(df.get_column(col)) for col in frequency_encode
             }
-        if missing_indicators is True:
-            self._missing_columns = [
-                col for col in df.columns if _missing_series(df.get_column(col)).any()
-            ]
-        elif missing_indicators:
-            self._missing_columns = list(missing_indicators)
         return self
 
     def categorical_to_enum(self, lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -272,30 +260,6 @@ class EncodingFeatures:
             frequencies.apply(col) for col, frequencies in self._frequencies.items()
         )
 
-    def missing_indicators(self, lf: pl.LazyFrame) -> pl.LazyFrame:
-        """Adds a 0/1 column `{column}_missing` per fitted column, 1 where the value is
-        null (or NaN). The columns come from `fit`, so every frame gets the same ones,
-        even where it has no missing values. The original columns are kept.
-
-        Args:
-            lf (pl.LazyFrame): The data; must contain the fitted columns.
-
-        Returns:
-            pl.LazyFrame: `lf` with the indicator columns (`pl.UInt8`) appended.
-
-        Raises:
-            RuntimeError: If `fit` wasn't called with `missing_indicators=...`.
-        """
-        if self._missing_columns is None:
-            raise RuntimeError(
-                "call fit() with `missing_indicators=...` before missing_indicators()"
-            )
-        schema = lf.collect_schema()
-        return lf.with_columns(
-            _missing_expr(col, schema[col]).cast(pl.UInt8).alias(f"{col}_missing")
-            for col in self._missing_columns
-        )
-
 
 @dataclass(frozen=True)
 class _TargetEncoding:
@@ -344,11 +308,10 @@ def _needed_columns(
     target: str | None,
     target_encode: Sequence[str] | None,
     frequency_encode: Sequence[str] | None,
-    missing_indicators: Sequence[str] | bool,
 ) -> list[str]:
     """The columns `fit` needs, so only those are collected; all of them when a
     selector or `missing_indicators=True` has to see every column."""
-    if isinstance(categorical_columns, pl.Expr) or missing_indicators is True:
+    if isinstance(categorical_columns, pl.Expr):
         return lf.collect_schema().names()
     needed = [
         *(categorical_columns or []),
@@ -356,7 +319,6 @@ def _needed_columns(
         *([target] if target else []),
         *(target_encode or []),
         *(frequency_encode or []),
-        *(missing_indicators or []),
     ]
     return list(dict.fromkeys(needed))
 
@@ -448,15 +410,6 @@ def _learn_frequencies(s: pl.Series) -> _Frequencies:
     ).to_dict()
     shares = dict(zip(counts[s.name], counts["share"], strict=True))
     return _Frequencies(shares, s.null_count() / n)
-
-
-def _missing_series(s: pl.Series) -> pl.Series:
-    return s.is_null() | s.is_nan() if s.dtype.is_float() else s.is_null()
-
-
-def _missing_expr(col: str, dtype: pl.DataType) -> pl.Expr:
-    missing = pl.col(col).is_null()
-    return missing | pl.col(col).is_nan() if dtype.is_float() else missing
 
 
 def _get_bins(

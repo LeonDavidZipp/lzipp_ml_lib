@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 import polars as pl
 import pytest
@@ -148,56 +146,11 @@ def test_frequency_encode_gives_unseen_categories_zero():
 
 
 # ------------------------------------------------------------------------------------ #
-#                                  missing indicators                                  #
-# ------------------------------------------------------------------------------------ #
-
-
-def test_missing_indicators_true_flags_the_training_columns_with_nulls_or_nans():
-    train = pl.LazyFrame(
-        {"a": [1.0, None], "b": [1.0, math.nan], "c": [1.0, 2.0], "d": ["x", None]}
-    )
-    fe = EncodingFeatures().fit(train, missing_indicators=True)
-    encoded = fe.missing_indicators(train).collect()
-    assert encoded.columns == [
-        "a",
-        "b",
-        "c",
-        "d",
-        "a_missing",
-        "b_missing",
-        "d_missing",
-    ]
-    assert encoded.select(pl.selectors.ends_with("_missing")).row(1) == (1, 1, 1)
-
-
-def test_missing_indicators_give_every_frame_the_same_columns():
-    fe = EncodingFeatures().fit(
-        pl.LazyFrame({"a": [1.0, None]}), missing_indicators=True
-    )
-    complete = fe.missing_indicators(pl.LazyFrame({"a": [1.0, 2.0]})).collect()
-    assert complete["a_missing"].to_list() == [0, 0]
-
-
-def test_missing_indicators_take_explicit_columns():
-    fe = EncodingFeatures().fit(
-        pl.LazyFrame({"a": [1, 2], "b": [1, None]}), missing_indicators=["a"]
-    )
-    columns = fe.missing_indicators(pl.LazyFrame({"a": [None], "b": [None]}))
-    assert columns.collect().row(0, named=True) == {
-        "a": None,
-        "b": None,
-        "a_missing": 1,
-    }
-
-
-# ------------------------------------------------------------------------------------ #
 #                                         fit                                          #
 # ------------------------------------------------------------------------------------ #
 
 
-@pytest.mark.parametrize(
-    "method", ["target_encode", "frequency_encode", "missing_indicators"]
-)
+@pytest.mark.parametrize("method", ["target_encode", "frequency_encode"])
 def test_methods_need_their_fit_arguments(method: str):
     fe = EncodingFeatures().fit(pl.LazyFrame({"a": [1]}))
     with pytest.raises(RuntimeError, match="call fit"):
