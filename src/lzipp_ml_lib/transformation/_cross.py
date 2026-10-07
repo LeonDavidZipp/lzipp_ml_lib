@@ -1,13 +1,30 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 import polars as pl
 
 _ColumnOrExpr = str | pl.Expr
 
 
-class CrossFeatures:
-    def __init__(self): ...
+@dataclass(frozen=True)
+class DifferenceSpec:
+    minuend: _ColumnOrExpr
+    subtrahend: _ColumnOrExpr
 
+
+@dataclass(frozen=True)
+class ProductSpec:
+    factors: Sequence[_ColumnOrExpr]
+    scale: int | float = 1
+
+
+@dataclass(frozen=True)
+class RatioSpec:
+    dividend: _ColumnOrExpr
+    divisor: _ColumnOrExpr
+
+
+class CrossFeatures:
     def sum(
         self, lf: pl.LazyFrame, name: str, addends: Sequence[_ColumnOrExpr]
     ) -> pl.LazyFrame:
@@ -44,6 +61,46 @@ class CrossFeatures:
         self, lf: pl.LazyFrame, name: str, expr: pl.Expr
     ) -> pl.LazyFrame:
         return lf.with_columns(expr.alias(name))
+
+    def sum_multi(
+        self,
+        lf: pl.LazyFrame,
+        spec: Mapping[str, Sequence[_ColumnOrExpr]],
+    ) -> pl.LazyFrame:
+        return lf.with_columns(
+            sum_expr(addends).alias(name) for name, addends in spec.items()
+        )
+
+    def difference_multi(
+        self,
+        lf: pl.LazyFrame,
+        spec: Mapping[str, tuple[_ColumnOrExpr, _ColumnOrExpr]],
+    ) -> pl.LazyFrame:
+        return lf.with_columns(
+            difference_expr(minuend, subtrahend).alias(name)
+            for name, (minuend, subtrahend) in spec.items()
+        )
+
+    def product_multi(
+        self,
+        lf: pl.LazyFrame,
+        spec: Mapping[str, ProductSpec],
+    ) -> pl.LazyFrame:
+        exprs = [
+            product_expr(item.factors, item.scale).alias(name)
+            for name, item in spec.items()
+        ]
+        return lf.with_columns(exprs)
+
+    def ratio_multi(
+        self,
+        lf: pl.LazyFrame,
+        spec: Mapping[str, tuple[_ColumnOrExpr, _ColumnOrExpr]],
+    ) -> pl.LazyFrame:
+        return lf.with_columns(
+            ratio_expr(dividend, divisor).alias(name)
+            for name, (dividend, divisor) in spec.items()
+        )
 
 
 def _into_expr(val: _ColumnOrExpr) -> pl.Expr:
