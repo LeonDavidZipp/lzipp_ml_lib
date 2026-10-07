@@ -1,3 +1,4 @@
+from ._classification import ClassificationFeatures
 from ._timeseries import (
     CalendarFeature,
     CyclicalFeature,
@@ -9,6 +10,7 @@ from ._timeseries import (
 
 __all__ = [
     "CalendarFeature",
+    "ClassificationFeatures",
     "CyclicalFeature",
     "RollingStat",
     "TimeseriesSchema",

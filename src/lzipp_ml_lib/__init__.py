@@ -2,6 +2,7 @@ from .analysis.plotting import plot_corr_heatmap, plot_kde
 from .hyperparameter import fit_xgb_classifier, fit_xgb_regressor
 from .transformation import (
     CalendarFeature,
+    ClassificationFeatures,
     CyclicalFeature,
     RollingStat,
     TimeseriesFeatures,
@@ -13,6 +14,7 @@ __all__ = [
     "plot_corr_heatmap",
     "plot_kde",
     "CalendarFeature",
+    "ClassificationFeatures",
     "CyclicalFeature",
     "RollingStat",
     "TimeseriesFeatures",
