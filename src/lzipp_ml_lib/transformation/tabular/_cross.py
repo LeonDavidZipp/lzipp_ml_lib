@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from .._shared import ColumnOrExpr, into_expr
+from ..._shared import ColumnOrExpr, into_expr
 
 
 @dataclass(frozen=True)

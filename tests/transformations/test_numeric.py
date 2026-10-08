@@ -9,7 +9,7 @@ from hypothesis import example, given
 from hypothesis import strategies as st
 from scipy.stats import yeojohnson  # type: ignore
 
-from lzipp_ml_lib.transformation._numeric import (
+from lzipp_ml_lib.transformation.tabular._numeric import (
     ImputeStrategy,
     NumericFeatures,
     ScaleMethod,

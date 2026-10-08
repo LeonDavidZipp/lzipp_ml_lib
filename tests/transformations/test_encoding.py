@@ -4,7 +4,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from lzipp_ml_lib.transformation._encoding import EncodingFeatures
+from lzipp_ml_lib.transformation.tabular._encoding import EncodingFeatures
 from tests.composites import SAMPLE_SETTINGS
 
 _CITIES = st.sampled_from(["a", "b", "c", None])

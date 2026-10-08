@@ -6,7 +6,7 @@ import polars.selectors as cs
 # from hypothesis.strategies import composite
 import pytest
 
-from lzipp_ml_lib.transformation._cross import _into_expr  # type: ignore
+from lzipp_ml_lib.transformation.tabular._cross import _into_expr  # type: ignore
 
 
 @pytest.mark.parametrize("input", ("some_name", "another", pl.col("x"), cs.all()))

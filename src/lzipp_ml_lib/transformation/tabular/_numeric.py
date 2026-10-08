@@ -5,7 +5,7 @@ import numpy as np
 import polars as pl
 from scipy.stats import yeojohnson_normmax  # type: ignore
 
-from .._shared import ColumnOrExpr
+from ..._shared import ColumnOrExpr
 
 ScaleMethod = Literal["standard", "minmax", "robust"]
 ImputeStrategy = Literal["median", "mean", "zero"]
