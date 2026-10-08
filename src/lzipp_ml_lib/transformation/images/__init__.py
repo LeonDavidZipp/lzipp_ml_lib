@@ -1,3 +1,4 @@
+from ._plotting import plot_image_summary, show_images, show_pipeline
 from ._preprocessing import (
     CenterCrop,
     ChannelsFirst,
@@ -19,8 +20,13 @@ from ._preprocessing import (
     write_image,
     write_images,
 )
+from ._summary import summarize_images
 
 __all__ = [
+    "plot_image_summary",
+    "show_images",
+    "show_pipeline",
+    "summarize_images",
     "ChannelsFirst",
     "Normalize",
     "CenterCrop",
