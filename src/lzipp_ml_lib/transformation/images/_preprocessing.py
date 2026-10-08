@@ -9,6 +9,7 @@ cropping and value overflow.
 
 import asyncio
 import os
+from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
 from concurrent.futures import (
@@ -26,7 +27,6 @@ import cv2
 import numpy as np
 
 Image = np.ndarray
-Step = Callable[[Image], Image]
 Interpolation = Literal["auto", "nearest", "linear", "cubic", "area", "lanczos"]
 
 _INTERPOLATIONS = {
@@ -153,8 +153,34 @@ def _encode(suffix: str, image: Image) -> bytes:
 
 
 # ---- steps ---------------------------------------------------------------------------
+class Step(ABC):
+    """Base class of the preprocessing steps: an image goes in, a new one comes out.
+
+    Subclasses implement `transform`; calling a step calls it, so `step(image)` and
+    `step.transform(image)` are the same. Plain functions from image to image work in
+    an `ImagePipeline` too, without subclassing.
+    """
+
+    @abstractmethod
+    def transform(self, image: Image) -> Image:
+        """Applies the step to an image.
+
+        Args:
+            image (Image): The image, in RGB order or grayscale.
+
+        Returns:
+            Image: The transformed image, as a new array.
+        """
+
+    def __call__(self, image: Image) -> Image:
+        return self.transform(image)
+
+
+StepLike = Step | Callable[[Image], Image]
+
+
 @dataclass(frozen=True)
-class Resize:
+class Resize(Step):
     """Resizes to a fixed size, by default keeping the aspect ratio.
 
     Args:
@@ -177,7 +203,7 @@ class Resize:
     interpolation: Interpolation = "auto"
     pad_value: int | float = 0
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         width, height = (
             (self.size, self.size) if isinstance(self.size, int) else self.size
         )
@@ -196,7 +222,7 @@ class Resize:
 
 
 @dataclass(frozen=True)
-class Scale:
+class Scale(Step):
     """Scales by a factor, keeping the aspect ratio.
 
     Args:
@@ -209,7 +235,7 @@ class Scale:
     factor: float
     interpolation: Interpolation = "auto"
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if self.factor <= 0:
             raise ValueError(f"factor must be positive, got {self.factor}")
         h, w = image.shape[:2]
@@ -218,7 +244,7 @@ class Scale:
 
 
 @dataclass(frozen=True)
-class Grayscale:
+class Grayscale(Step):
     """Converts RGB to grayscale with the standard luminance weights
     (0.299 R + 0.587 G + 0.114 B). Grayscale images pass through.
 
@@ -229,13 +255,13 @@ class Grayscale:
 
     keep_channels: bool = False
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if _is_color(image) else image
         return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB) if self.keep_channels else gray
 
 
 @dataclass(frozen=True)
-class Smooth:
+class Smooth(Step):
     """Smooths (blurs) the image, e.g. to remove sensor noise before extracting
     features.
 
@@ -250,7 +276,7 @@ class Smooth:
     sigma: float = 1.0
     method: Literal["gaussian", "median"] = "gaussian"
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if self.sigma <= 0:
             raise ValueError(f"sigma must be positive, got {self.sigma}")
         if self.method == "median":
@@ -260,7 +286,7 @@ class Smooth:
 
 
 @dataclass(frozen=True)
-class Sharpen:
+class Sharpen(Step):
     """Sharpens with an unsharp mask: adds back `amount` times the difference to a
     blurred copy. Computed in floating point and clipped to the dtype's range, so
     bright pixels don't wrap around to dark ones.
@@ -275,7 +301,7 @@ class Sharpen:
     amount: float = 1.0
     sigma: float = 1.0
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if self.sigma <= 0:
             raise ValueError(f"sigma must be positive, got {self.sigma}")
         source = image.astype(np.float32)
@@ -285,7 +311,7 @@ class Sharpen:
 
 
 @dataclass(frozen=True)
-class Rotate:
+class Rotate(Step):
     """Rotates by an angle, counter-clockwise for positive angles.
 
     Multiples of 90° are exact (no resampling). Other angles enlarge the canvas so
@@ -307,10 +333,9 @@ class Rotate:
     fill_value: int | float = 0
     interpolation: Interpolation = "auto"
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         quarter_turns = self.angle / 90
         if quarter_turns == round(quarter_turns):
-            # np.rot90 turns counter-clockwise, like positive angles here
             return np.ascontiguousarray(np.rot90(image, k=round(quarter_turns) % 4))
         h, w = image.shape[:2]
         matrix = cv2.getRotationMatrix2D((w / 2, h / 2), self.angle, 1.0)
@@ -318,7 +343,6 @@ class Rotate:
         if self.expand:
             cos, sin = abs(matrix[0, 0]), abs(matrix[0, 1])
             out_w, out_h = round(h * sin + w * cos), round(h * cos + w * sin)
-            # move the centre to the centre of the larger canvas
             matrix[0, 2] += out_w / 2 - w / 2
             matrix[1, 2] += out_h / 2 - h / 2
         flags = (
@@ -337,7 +361,7 @@ class Rotate:
 
 
 @dataclass(frozen=True)
-class Flip:
+class Flip(Step):
     """Mirrors the image.
 
     Args:
@@ -348,7 +372,7 @@ class Flip:
     horizontal: bool = True
     vertical: bool = False
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if self.horizontal:
             image = image[:, ::-1]
         if self.vertical:
@@ -357,7 +381,7 @@ class Flip:
 
 
 @dataclass(frozen=True)
-class CenterCrop:
+class CenterCrop(Step):
     """Cuts a centred region out of the image.
 
     Args:
@@ -367,7 +391,7 @@ class CenterCrop:
 
     size: int | tuple[int, int]
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         width, height = (
             (self.size, self.size) if isinstance(self.size, int) else self.size
         )
@@ -378,7 +402,7 @@ class CenterCrop:
 
 
 @dataclass(frozen=True)
-class Equalize:
+class Equalize(Step):
     """Spreads the brightness over the full range, to even out lighting and
     contrast between images. Color images are equalized on their lightness only,
     so colors don't shift. Needs a uint8 image.
@@ -397,7 +421,7 @@ class Equalize:
     clip_limit: float = 2.0
     tile_grid: int = 8
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if image.dtype != np.uint8:
             raise ValueError(f"Equalize needs a uint8 image, got {image.dtype}")
         if self.adaptive:
@@ -413,18 +437,18 @@ class Equalize:
 
 
 @dataclass(frozen=True)
-class ToFloat:
+class ToFloat(Step):
     """Converts integer images to float32 in [0, 1], e.g. before feature extraction
     or a model; float images pass through."""
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         if np.issubdtype(image.dtype, np.integer):
             return image.astype(np.float32) / np.iinfo(image.dtype).max
         return image.astype(np.float32)
 
 
 # ---- pipeline ------------------------------------------------------------------------
-class ImagePipeline:
+class ImagePipeline(Step):
     """Applies a fixed sequence of preprocessing steps, the same way to every image:
 
         prep = ImagePipeline([Resize(224), Grayscale(), Smooth(1.0), Sharpen(0.5)])
@@ -432,16 +456,17 @@ class ImagePipeline:
             ...
         image = prep(some_array)
 
-    A step is any function from image to image, so custom ones fit in too.
+    A step is a `Step`, or any function from image to image, so custom ones fit in
+    too. A pipeline is a `Step` itself, so pipelines can be nested.
 
     Args:
-        steps (Sequence[Step]): The steps, in the order they're applied.
+        steps (Sequence[StepLike]): The steps, in the order they're applied.
     """
 
-    def __init__(self, steps: Sequence[Step]):
+    def __init__(self, steps: Sequence[StepLike]):
         self.steps = list(steps)
 
-    def __call__(self, image: Image) -> Image:
+    def transform(self, image: Image) -> Image:
         """Applies the steps to an image.
 
         Args:
@@ -478,27 +503,24 @@ class ImagePipeline:
         workers: int | None = None,
         chunk_size: int = 4,
     ) -> Generator[Image]:
-        """Like `load_many`, but reads and processes several images at once, while
-        still yielding them in the order of `paths`.
+        """Like `load_many_sequential`, but reads and processes several images at
+        once in threads, while still yielding them in the order of `paths`.
 
         Images are processed in chunks of `chunk_size` per task, and at most about
         `2 * workers` chunks are in flight at once, so memory stays bounded however
         many paths there are. Stopping early, or an error, cancels the remaining work.
 
-        Threads (the default) are the fast choice for the built-in steps: OpenCV
-        releases Python's GIL while decoding and filtering, so threads run in
-        parallel, start instantly and share memory. Processes are only worth it for
-        custom steps that hold the GIL (pure-Python or numpy-loop code); they take a
-        few seconds to start, copy every image between processes, and need the
-        steps to be picklable (no lambdas).
+        Threads suit the built-in steps: OpenCV releases Python's GIL while decoding
+        and filtering, so threads run in parallel, start instantly and share memory.
+        Custom steps that hold the GIL (pure-Python or numpy-loop code) gain little.
 
         Args:
             paths (Iterable[str | PathLike[str]]): The image files; may itself be
                 lazy, e.g. `Path("images").glob("*.png")`.
             grayscale (bool): Whether to read the images as grayscale. Defaults to
                 False.
-            workers (int | None): The number of threads or processes. If None, the
-                number of CPUs. Defaults to None.
+            workers (int | None): The number of threads. If None, the number of CPUs.
+                Defaults to None.
             chunk_size (int): The number of images per task; larger chunks lower
                 the per-task overhead, smaller ones spread the work more evenly.
                 Defaults to 4.
@@ -507,9 +529,8 @@ class ImagePipeline:
             Image: The processed images, in the order of `paths`.
 
         Raises:
-            ValueError: If `workers` or `chunk_size` is below 1, if `backend` is
-                `"process"` and a step can't be pickled, or when iterating reaches a
-                file that isn't an image OpenCV can decode.
+            ValueError: If `workers` or `chunk_size` is below 1, or when iterating
+                reaches a file that isn't an image OpenCV can decode.
             FileNotFoundError: When iterating reaches a file that doesn't exist.
         """
         workers = workers if workers is not None else os.cpu_count() or 1
@@ -559,9 +580,9 @@ class ImagePipeline:
 
 # ---- helpers -------------------------------------------------------------------------
 def _load_chunk(
-    steps: Sequence[Step], paths: Sequence[str | PathLike[str]], grayscale: bool
+    steps: Sequence[StepLike], paths: Sequence[str | PathLike[str]], grayscale: bool
 ) -> list[Image]:
-    """Loads and processes a chunk of images; top-level, so processes can run it."""
+    """Loads and processes a chunk of images: the unit of work of one thread."""
     pipeline = ImagePipeline(steps)
     return [pipeline.load(path, grayscale=grayscale) for path in paths]
 
