@@ -1,4 +1,10 @@
-from .tabular._cross import CrossFeatures, difference_expr, product_expr, ratio_expr, sum_expr
+from .tabular._cross import (
+    CrossFeatures,
+    difference_expr,
+    product_expr,
+    ratio_expr,
+    sum_expr,
+)
 from .tabular._encoding import EncodingFeatures
 from .tabular._numeric import NumericFeatures, signed_log1p_expr
 from .tabular._timeseries import (
