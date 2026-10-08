@@ -1,9 +1,11 @@
 from ._preprocessing import (
     CenterCrop,
+    ChannelsFirst,
     Equalize,
     Flip,
     Grayscale,
     ImagePipeline,
+    Normalize,
     Resize,
     Rotate,
     Scale,
@@ -19,6 +21,8 @@ from ._preprocessing import (
 )
 
 __all__ = [
+    "ChannelsFirst",
+    "Normalize",
     "CenterCrop",
     "Equalize",
     "Flip",

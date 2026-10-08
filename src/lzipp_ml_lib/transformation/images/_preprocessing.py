@@ -447,6 +447,60 @@ class ToFloat(Step):
         return image.astype(np.float32)
 
 
+# the per-channel statistics (RGB, in [0, 1]) most pretrained vision models expect
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+
+@dataclass(frozen=True)
+class Normalize(Step):
+    """Standardizes each channel: `(value - mean) / std`. Pretrained models expect
+    their training data's statistics, usually `IMAGENET_MEAN` and `IMAGENET_STD`.
+
+    Needs a float image in [0, 1], so `ToFloat` comes first: the usual statistics
+    are for that range, and applied to 0-255 values they'd give silently wrong
+    inputs.
+
+    Args:
+        mean (float | Sequence[float]): The mean per channel, or one value for all.
+            Defaults to `IMAGENET_MEAN`.
+        std (float | Sequence[float]): The standard deviation per channel, or one
+            value for all. Defaults to `IMAGENET_STD`.
+    """
+
+    mean: float | Sequence[float] = _IMAGENET_MEAN
+    std: float | Sequence[float] = _IMAGENET_STD
+
+    def transform(self, image: Image) -> Image:
+        if not np.issubdtype(image.dtype, np.floating):
+            raise ValueError(
+                f"Normalize needs a float image in [0, 1], got {image.dtype}; "
+                "apply ToFloat first"
+            )
+        channels = image.shape[2] if image.ndim == 3 else 1
+        mean = _per_channel(self.mean, channels, "mean")
+        std = _per_channel(self.std, channels, "std")
+        if (std <= 0).any():
+            raise ValueError(f"std must be positive, got {self.std}")
+        if image.ndim == 2:
+            mean, std = mean[0], std[0]
+        return ((image - mean) / std).astype(np.float32)
+
+
+@dataclass(frozen=True)
+class ChannelsFirst(Step):
+    """Reorders height x width x channels to channels x height x width, the layout
+    PyTorch models expect, so `torch.from_numpy(image)` can go straight in.
+    Grayscale images get a channel axis of 1. Comes last in a pipeline, since the
+    other steps expect channels last.
+    """
+
+    def transform(self, image: Image) -> Image:
+        if image.ndim == 2:
+            return np.ascontiguousarray(image[np.newaxis])
+        return np.ascontiguousarray(image.transpose(2, 0, 1))
+
+
 # ---- pipeline ------------------------------------------------------------------------
 class ImagePipeline(Step):
     """Applies a fixed sequence of preprocessing steps, the same way to every image:
@@ -594,6 +648,20 @@ def _chunks(
     iterator = iter(items)
     while chunk := list(islice(iterator, size)):
         yield chunk
+
+
+def _per_channel(
+    value: float | Sequence[float], channels: int, name: str
+) -> np.ndarray:
+    """`value` as one entry per channel, broadcasting a single number."""
+    values = np.atleast_1d(np.asarray(value, dtype=np.float32))
+    if values.size == 1:
+        return np.repeat(values, channels)
+    if values.size != channels:
+        raise ValueError(
+            f"{name} has {values.size} values, but the image has {channels} channels"
+        )
+    return values
 
 
 def _is_color(image: Image) -> bool:
