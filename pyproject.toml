@@ -43,11 +43,14 @@ holidays = ">=0.105,<0.106"
 prophet = ">=1.4.0,<2"
 matplotlib = ">=3.11.2,<4"
 seaborn = ">=0.13.2,<0.14"
+opencv = ">=5.0.0,<6"
+aiofiles = ">=25.1.0,<26"
 
 [tool.pixi.feature.dev.dependencies]
 pytest = "*"
 ipykernel = "*"
 hypothesis = ">=6.168.3,<7"
+types-aiofiles = ">=25.1.0.20260518,<26"
 
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
