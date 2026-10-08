@@ -100,8 +100,7 @@ def _draw_binned(
     stats = (
         df.filter(pl.col(col).is_not_null() & pl.col(col).is_not_nan())
         .with_columns(
-            bin=pl.col(col)
-            .bin_quantiles(n_bins, labels=False, right_closed=True)
+            bin=pl.col(col).bin_quantiles(n_bins, labels=False, right_closed=True)
         )
         .group_by("bin")
         .agg(
