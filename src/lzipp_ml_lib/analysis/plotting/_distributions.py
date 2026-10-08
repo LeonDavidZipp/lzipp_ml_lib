@@ -65,7 +65,7 @@ def plot_kde(
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
         # cut=0: no curve past the data, e.g. no density below 0 for a count
         kws: dict[str, Any] = {
-            "data": sub,
+            "data": sub.to_pandas(),
             "x": col,
             "ax": ax,
             "log_scale": log,
@@ -131,7 +131,7 @@ def plot_histograms(
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
         discrete = sub[col].dtype.is_integer() and sub[col].n_unique() <= 50
         kws: dict[str, Any] = {
-            "data": sub,
+            "data": sub.to_pandas(),
             "x": col,
             "ax": ax,
             "log_scale": log,
@@ -204,7 +204,7 @@ def plot_boxplots(
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
         sns.boxplot(
-            data=sub,
+            data=sub.to_pandas(),
             x=col,
             y=by,
             order=list(palette) or None,
@@ -267,7 +267,7 @@ def plot_violinplots(
 
     def draw(ax: Axes, sub: pl.DataFrame, col: str, palette: dict[Any, str]) -> None:
         sns.violinplot(
-            data=sub,
+            data=sub.to_pandas(),
             x=col,
             y=by,
             order=list(palette) or None,

@@ -182,7 +182,8 @@ class EncodingFeatures:
             raise RuntimeError("call fit() with `n_bins=...` before numeric_to_bin()")
         frame_cols = lf.collect_schema().names()
         return lf.with_columns(
-            pl.col(col).cut(edges) for col, edges in self._bins.items()
+            pl.col(col).bin_intervals(edges, labels=False, right_closed=True)
+            for col, edges in self._bins.items()
         ).select(frame_cols)
 
     def target_encode(

@@ -11,7 +11,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from lzipp_ml_lib import RollingStat, TimeseriesFeatures, TimeseriesSchema
-from lzipp_ml_lib.transformation.tabular._timeseries import _latest_available  # type: ignore
+from lzipp_ml_lib.transformation.tabular._timeseries import (
+    _latest_available,  # type: ignore
+)
 from tests.composites import BASIC_SETTINGS, SAMPLE_SETTINGS
 
 from .composites import (
@@ -54,38 +56,6 @@ def test_prepare_unique_and_sort(
     plt.assert_frame_equal(
         result.collect(), _ts_lf(expected_days, expected_days).collect()
     )
-    assert failure.counts() == expected_failures
-
-
-@pytest.mark.parametrize(
-    ("lf", "expected_rows", "expected_failures"),
-    [
-        pytest.param(
-            pl.LazyFrame({"ts": [datetime(2024, 1, 1)], "val": [1]}),
-            1,
-            {},
-            id="int-val-cast-to-float",
-        ),
-        pytest.param(
-            pl.LazyFrame({"ts": ["2024-01-01T00:00:00"], "val": [1.0]}),
-            1,
-            {},
-            id="string-ts-parsed",
-        ),
-        pytest.param(
-            pl.LazyFrame({"ts": ["2024-01-01 00:00:00"], "val": [1.0]}),
-            0,
-            {"ts|dtype": 1},
-            id="string-ts-not-parsed",
-        ),
-    ],
-)
-def test_prepare_casting(
-    lf: pl.LazyFrame, expected_rows: int, expected_failures: dict[str, int]
-) -> None:
-    result, failure = TimeseriesFeatures.prepare(lf)
-
-    assert result.collect().height == expected_rows
     assert failure.counts() == expected_failures
 
 

@@ -99,9 +99,10 @@ def _draw_residuals_vs_predicted(
     binned = (
         pl.DataFrame({"pred": predicted, "res": residual})
         .with_columns(
-            # ~25 points per bin, so the mean isn't mostly noise
-            bin=pl.col("pred").qcut(
-                int(np.clip(len(predicted) // 25, 1, 20)), allow_duplicates=True
+            bin=pl.col("pred").bin_quantiles(
+                int(np.clip(len(predicted) // 25, 1, 20)),
+                labels=False,
+                right_closed=True,
             )
         )
         .group_by("bin")
